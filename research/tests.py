@@ -295,3 +295,73 @@ class BulkActionsTests(TestCase):
         self.assertRedirects(response, reverse('strain-list'))
         self.strain_one.refresh_from_db()
         self.assertFalse(self.strain_one.is_active)
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class CSVImportTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.owner = User.objects.create_user(username='csv-owner', password='pass123')
+        self.viewer = User.objects.create_user(username='csv-viewer', password='pass123')
+        self.database = ResearchDatabase.objects.create(name='CSV-DB', created_by=self.owner)
+
+        DatabaseMembership.objects.create(user=self.owner, research_database=self.database, role=DatabaseMembership.Role.EDITOR)
+        DatabaseMembership.objects.create(user=self.viewer, research_database=self.database, role=DatabaseMembership.Role.VIEWER)
+
+        self.organism = Organism.objects.create(research_database=self.database, name='E. coli')
+        self.location = Location.objects.create(
+            research_database=self.database,
+            building='B1',
+            room='R1',
+            freezer='F1',
+            box='BX1',
+            position='P1',
+        )
+
+    def _set_active_database(self):
+        session = self.client.session
+        session[SESSION_DATABASE_KEY] = self.database.id
+        session.save()
+
+    def test_viewer_cannot_access_csv_import(self):
+        self.client.force_login(self.viewer)
+        self._set_active_database()
+        response = self.client.get(reverse('csv_upload'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_editor_can_import_csv_and_duplicates_are_skipped(self):
+        self.client.force_login(self.owner)
+        self._set_active_database()
+
+        csv_content = "strain_id,organism,genotype,location,comments\nS-100,E. coli,WT,B1 / R1 / F1 / BX1 / P1,First\nS-100,E. coli,WT,B1 / R1 / F1 / BX1 / P1,Duplicate\n"
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile('strains.csv', csv_content.encode('utf-8'), content_type='text/csv')
+
+        response = self.client.post(reverse('csv_upload'), {'action': 'upload', 'file': upload})
+        self.assertEqual(response.status_code, 302)
+
+        response = self.client.post(
+            reverse('csv_upload'),
+            {
+                'action': 'mapping',
+                'map_strain_id': 'strain_id',
+                'map_organism': 'organism',
+                'map_genotype': 'genotype',
+                'map_location': 'location',
+                'map_comments': 'comments',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        response = self.client.post(reverse('csv_upload'), {'action': 'confirm_import'})
+        self.assertRedirects(response, reverse('strain-list'))
+
+        self.assertEqual(Strain.objects.filter(research_database=self.database, strain_id='S-100').count(), 1)
+        self.assertTrue(
+            self.database.auditlog_set.filter(
+                action='csv_import',
+                metadata__rows_created=1,
+                metadata__rows_skipped=1,
+                metadata__filename='strains.csv',
+            ).exists()
+        )

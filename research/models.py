@@ -323,6 +323,7 @@ class AuditLog(models.Model):
     action = models.CharField(max_length=120)
     record_type = models.CharField(max_length=120)
     record_id = models.CharField(max_length=120)
+    metadata = models.JSONField(default=dict, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:

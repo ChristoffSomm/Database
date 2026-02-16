@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}CSV Import | Strain DB{% endblock %}
+{% block header_title %}CSV Import{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-6xl space-y-6">
+  <div class="rounded-lg border border-slate-700 bg-slate-800 p-5">
+    <h2 class="text-2xl font-bold text-slate-100">Import Strains from CSV</h2>
+    <p class="mt-2 text-sm text-slate-400">Upload, map columns, preview validation, then confirm import into the active database.</p>
+
+    <div class="mt-5">
+      <div class="h-2 w-full overflow-hidden rounded-full bg-slate-700">
+        <div class="h-2 bg-primary transition-all" style="width: {% if step == 'upload' %}33{% elif step == 'mapping' %}66{% else %}100{% endif %}%;"></div>
+      </div>
+      <div class="mt-2 flex justify-between text-xs text-slate-400">
+        <span class="{% if step == 'upload' %}text-primary{% endif %}">1. Upload</span>
+        <span class="{% if step == 'mapping' %}text-primary{% endif %}">2. Mapping</span>
+        <span class="{% if step == 'preview' %}text-primary{% endif %}">3. Preview</span>
+      </div>
+    </div>
+  </div>
+
+  {% if step == 'upload' %}
+    {% include 'research/csv_upload_upload_step.html' %}
+  {% elif step == 'mapping' %}
+    {% include 'research/csv_upload_mapping_step.html' %}
+  {% elif step == 'preview' %}
+    {% include 'research/csv_upload_preview_step.html' %}
+  {% endif %}
+</div>
+{% endblock %}
