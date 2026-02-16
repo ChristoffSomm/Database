@@ -1,11 +1,27 @@
 from django import forms
 
-from .helpers import get_current_database
-from .models import Location, Organism, Plasmid, Strain
+from .helpers import get_current_database, get_custom_field_definitions
+from .models import CustomFieldDefinition, CustomFieldValue, Location, Organism, Plasmid, Strain
 
 
 class GlobalSearchForm(forms.Form):
     q = forms.CharField(max_length=200, required=False, strip=True)
+
+
+class CustomFieldDefinitionForm(forms.ModelForm):
+    class Meta:
+        model = CustomFieldDefinition
+        fields = ['name', 'field_type', 'choices']
+
+    def clean(self):
+        cleaned_data = super().clean()
+        field_type = cleaned_data.get('field_type')
+        choices = (cleaned_data.get('choices') or '').strip()
+        if field_type == CustomFieldDefinition.FieldType.CHOICE and not choices:
+            self.add_error('choices', 'Choices are required for choice fields.')
+        if field_type != CustomFieldDefinition.FieldType.CHOICE:
+            cleaned_data['choices'] = ''
+        return cleaned_data
 
 
 class StrainForm(forms.ModelForm):
@@ -20,6 +36,9 @@ class StrainForm(forms.ModelForm):
         self.request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
 
+        self.custom_field_definitions = []
+        self.custom_field_names = []
+
         current_database = self._get_current_database()
         if current_database:
             self.fields['organism'].queryset = Organism.objects.filter(research_database=current_database).order_by('name')
@@ -32,10 +51,50 @@ class StrainForm(forms.ModelForm):
             self.fields['plasmids'].queryset = Plasmid.objects.none()
             self.fields['location'].queryset = Location.objects.none()
 
+        self._add_dynamic_custom_fields(current_database)
+
     def _get_current_database(self):
         if not self.request:
             return None
         return getattr(self.request, 'current_database', None) or get_current_database(self.request)
+
+    def _custom_field_name(self, definition_id):
+        return f'custom_field_{definition_id}'
+
+    def _add_dynamic_custom_fields(self, current_database):
+        definitions = list(get_custom_field_definitions(current_database))
+        existing_values = {}
+        if self.instance and self.instance.pk:
+            existing_values = {
+                value.field_definition_id: value
+                for value in self.instance.custom_field_values.select_related('field_definition')
+            }
+
+        for definition in definitions:
+            field_name = self._custom_field_name(definition.id)
+            self.custom_field_definitions.append(definition)
+            self.custom_field_names.append(field_name)
+            if definition.field_type == CustomFieldDefinition.FieldType.TEXT:
+                self.fields[field_name] = forms.CharField(required=False, label=definition.name)
+                if definition.id in existing_values:
+                    self.initial[field_name] = existing_values[definition.id].value_text
+            elif definition.field_type == CustomFieldDefinition.FieldType.NUMBER:
+                self.fields[field_name] = forms.FloatField(required=False, label=definition.name)
+                if definition.id in existing_values:
+                    self.initial[field_name] = existing_values[definition.id].value_number
+            elif definition.field_type == CustomFieldDefinition.FieldType.DATE:
+                self.fields[field_name] = forms.DateField(required=False, label=definition.name, widget=forms.DateInput(attrs={'type': 'date'}))
+                if definition.id in existing_values:
+                    self.initial[field_name] = existing_values[definition.id].value_date
+            elif definition.field_type == CustomFieldDefinition.FieldType.BOOLEAN:
+                self.fields[field_name] = forms.BooleanField(required=False, label=definition.name)
+                if definition.id in existing_values:
+                    self.initial[field_name] = bool(existing_values[definition.id].value_boolean)
+            elif definition.field_type == CustomFieldDefinition.FieldType.CHOICE:
+                choices = [('', '---------')] + [(choice, choice) for choice in definition.parsed_choices()]
+                self.fields[field_name] = forms.ChoiceField(required=False, label=definition.name, choices=choices)
+                if definition.id in existing_values:
+                    self.initial[field_name] = existing_values[definition.id].value_choice
 
     def clean_strain_id(self):
         strain_id = self.cleaned_data['strain_id'].strip()
@@ -83,4 +142,38 @@ class StrainForm(forms.ModelForm):
         if commit:
             instance.save()
             self.save_m2m()
+            self.save_custom_field_values(instance)
         return instance
+
+    def save_custom_field_values(self, strain):
+        for definition in self.custom_field_definitions:
+            field_name = self._custom_field_name(definition.id)
+            submitted_value = self.cleaned_data.get(field_name)
+            is_empty = submitted_value in (None, '')
+            if definition.field_type == CustomFieldDefinition.FieldType.TEXT and isinstance(submitted_value, str):
+                submitted_value = submitted_value.strip()
+                is_empty = submitted_value == ''
+
+            if is_empty and definition.field_type != CustomFieldDefinition.FieldType.BOOLEAN:
+                CustomFieldValue.objects.filter(strain=strain, field_definition=definition).delete()
+                continue
+
+            custom_value, _ = CustomFieldValue.objects.get_or_create(strain=strain, field_definition=definition)
+            custom_value.value_text = None
+            custom_value.value_number = None
+            custom_value.value_date = None
+            custom_value.value_boolean = None
+            custom_value.value_choice = None
+
+            if definition.field_type == CustomFieldDefinition.FieldType.TEXT:
+                custom_value.value_text = submitted_value
+            elif definition.field_type == CustomFieldDefinition.FieldType.NUMBER:
+                custom_value.value_number = submitted_value
+            elif definition.field_type == CustomFieldDefinition.FieldType.DATE:
+                custom_value.value_date = submitted_value
+            elif definition.field_type == CustomFieldDefinition.FieldType.BOOLEAN:
+                custom_value.value_boolean = bool(submitted_value)
+            elif definition.field_type == CustomFieldDefinition.FieldType.CHOICE:
+                custom_value.value_choice = submitted_value
+
+            custom_value.save()

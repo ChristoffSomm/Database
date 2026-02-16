@@ -8,9 +8,19 @@ from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from .forms import GlobalSearchForm, StrainForm
-from .helpers import SESSION_DATABASE_KEY, get_current_database
-from .models import AuditLog, DatabaseMembership, File, Location, Organism, Plasmid, ResearchDatabase, Strain
+from .forms import CustomFieldDefinitionForm, GlobalSearchForm, StrainForm
+from .helpers import SESSION_DATABASE_KEY, get_current_database, get_custom_field_definitions, get_custom_field_values
+from .models import (
+    AuditLog,
+    CustomFieldDefinition,
+    DatabaseMembership,
+    File,
+    Location,
+    Organism,
+    Plasmid,
+    ResearchDatabase,
+    Strain,
+)
 
 
 class CurrentDatabaseQuerysetMixin:
@@ -120,6 +130,51 @@ class DatabaseMembershipUpdateRoleView(LoginRequiredMixin, AdminRequiredMixin, V
         return HttpResponseRedirect(reverse('membership-list'))
 
 
+class CustomFieldDefinitionListView(LoginRequiredMixin, EditorRequiredMixin, ListView):
+    model = CustomFieldDefinition
+    template_name = 'research/custom_field_definition_list.html'
+    context_object_name = 'custom_field_definitions'
+
+    def get_queryset(self):
+        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
+        return CustomFieldDefinition.objects.filter(research_database=current_database).order_by('name')
+
+
+class CustomFieldDefinitionCreateView(LoginRequiredMixin, EditorRequiredMixin, CreateView):
+    model = CustomFieldDefinition
+    form_class = CustomFieldDefinitionForm
+    template_name = 'research/custom_field_definition_form.html'
+    success_url = reverse_lazy('custom-field-definition-list')
+
+    def form_valid(self, form):
+        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
+        form.instance.research_database = current_database
+        form.instance.created_by = self.request.user
+        messages.success(self.request, f'Custom field "{form.instance.name}" created.')
+        return super().form_valid(form)
+
+
+class CustomFieldDefinitionUpdateView(LoginRequiredMixin, EditorRequiredMixin, UpdateView):
+    model = CustomFieldDefinition
+    form_class = CustomFieldDefinitionForm
+    template_name = 'research/custom_field_definition_form.html'
+    success_url = reverse_lazy('custom-field-definition-list')
+
+    def get_queryset(self):
+        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
+        return CustomFieldDefinition.objects.filter(research_database=current_database)
+
+
+class CustomFieldDefinitionDeleteView(LoginRequiredMixin, EditorRequiredMixin, DeleteView):
+    model = CustomFieldDefinition
+    template_name = 'research/custom_field_definition_confirm_delete.html'
+    success_url = reverse_lazy('custom-field-definition-list')
+
+    def get_queryset(self):
+        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
+        return CustomFieldDefinition.objects.filter(research_database=current_database)
+
+
 class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, ListView):
     model = Strain
     template_name = 'research/strain_list.html'
@@ -140,22 +195,73 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
         organism_id = self.request.GET.get('organism', '').strip()
 
         if search_query:
-            queryset = queryset.filter(Q(strain_id__icontains=search_query) | Q(name__icontains=search_query))
+            queryset = queryset.filter(
+                Q(strain_id__icontains=search_query)
+                | Q(name__icontains=search_query)
+                | Q(custom_field_values__value_text__icontains=search_query)
+                | Q(custom_field_values__value_choice__icontains=search_query)
+            )
         if status:
             queryset = queryset.filter(status=status)
         if organism_id:
             queryset = queryset.filter(organism_id=organism_id)
 
-        return queryset
+        for definition in get_custom_field_definitions(self.get_current_database()):
+            field_key = f'cf_{definition.id}'
+            raw_value = self.request.GET.get(field_key, '').strip()
+            if raw_value == '':
+                continue
+
+            if definition.field_type == CustomFieldDefinition.FieldType.TEXT:
+                queryset = queryset.filter(
+                    custom_field_values__field_definition=definition,
+                    custom_field_values__value_text__icontains=raw_value,
+                )
+            elif definition.field_type == CustomFieldDefinition.FieldType.NUMBER:
+                try:
+                    queryset = queryset.filter(
+                        custom_field_values__field_definition=definition,
+                        custom_field_values__value_number=float(raw_value),
+                    )
+                except ValueError:
+                    continue
+            elif definition.field_type == CustomFieldDefinition.FieldType.DATE:
+                queryset = queryset.filter(
+                    custom_field_values__field_definition=definition,
+                    custom_field_values__value_date=raw_value,
+                )
+            elif definition.field_type == CustomFieldDefinition.FieldType.BOOLEAN:
+                queryset = queryset.filter(
+                    custom_field_values__field_definition=definition,
+                    custom_field_values__value_boolean=raw_value.lower() in {'true', '1', 'yes'},
+                )
+            elif definition.field_type == CustomFieldDefinition.FieldType.CHOICE:
+                queryset = queryset.filter(
+                    custom_field_values__field_definition=definition,
+                    custom_field_values__value_choice=raw_value,
+                )
+
+        return queryset.distinct()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         current_database = self.get_current_database()
+        definitions = list(get_custom_field_definitions(current_database))
         context['search_query'] = self.request.GET.get('q', '').strip()
         context['selected_status'] = self.request.GET.get('status', '').strip()
         context['selected_organism'] = self.request.GET.get('organism', '').strip()
         context['status_choices'] = Strain.Status.choices
         context['organisms'] = Organism.objects.filter(research_database=current_database).order_by('name')
+        context['custom_field_filters'] = [
+            {
+                'id': definition.id,
+                'name': definition.name,
+                'field_type': definition.field_type,
+                'options': definition.parsed_choices(),
+                'selected_value': self.request.GET.get(f'cf_{definition.id}', '').strip(),
+            }
+            for definition in definitions
+        ]
         return context
 
 
@@ -180,6 +286,7 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
             Q(record_type__iexact='strain'),
             Q(record_id=str(strain.pk)) | Q(record_id=str(strain.strain_id)),
         )[:20]
+        context['custom_field_values'] = get_custom_field_values(strain)
         return context
 
 
@@ -307,9 +414,14 @@ class SearchResultsView(LoginRequiredMixin, TemplateView):
             if query:
                 current_database = self.request.current_database
                 grouped_results['strains'] = list(
-                    Strain.objects.filter(research_database=current_database, is_active=True).filter(
-                        Q(strain_id__icontains=query) | Q(name__icontains=query)
-                    )[:50]
+                    Strain.objects.filter(research_database=current_database, is_active=True)
+                    .filter(
+                        Q(strain_id__icontains=query)
+                        | Q(name__icontains=query)
+                        | Q(custom_field_values__value_text__icontains=query)
+                        | Q(custom_field_values__value_choice__icontains=query)
+                    )
+                    .distinct()[:50]
                 )
                 grouped_results['organisms'] = list(
                     Organism.objects.filter(research_database=current_database, name__icontains=query)[:50]

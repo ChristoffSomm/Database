@@ -1,6 +1,10 @@
 from django.urls import path
 
 from .views import (
+    CustomFieldDefinitionCreateView,
+    CustomFieldDefinitionDeleteView,
+    CustomFieldDefinitionListView,
+    CustomFieldDefinitionUpdateView,
     DashboardView,
     DatabaseMembershipListView,
     DatabaseMembershipUpdateRoleView,
@@ -28,6 +32,10 @@ urlpatterns = [
         DatabaseMembershipUpdateRoleView.as_view(),
         name='membership-update-role',
     ),
+    path('custom-fields/', CustomFieldDefinitionListView.as_view(), name='custom-field-definition-list'),
+    path('custom-fields/create/', CustomFieldDefinitionCreateView.as_view(), name='custom-field-definition-create'),
+    path('custom-fields/<int:pk>/update/', CustomFieldDefinitionUpdateView.as_view(), name='custom-field-definition-update'),
+    path('custom-fields/<int:pk>/delete/', CustomFieldDefinitionDeleteView.as_view(), name='custom-field-definition-delete'),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path('search/', SearchResultsView.as_view(), name='search-results'),
     path('strains/', StrainListView.as_view(), name='strain-list'),

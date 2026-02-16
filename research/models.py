@@ -130,6 +130,74 @@ class Strain(models.Model):
         return reverse('strain-detail', kwargs={'pk': self.pk})
 
 
+class CustomFieldDefinition(models.Model):
+    class FieldType(models.TextChoices):
+        TEXT = 'text', 'Text'
+        NUMBER = 'number', 'Number'
+        DATE = 'date', 'Date'
+        BOOLEAN = 'boolean', 'Boolean'
+        CHOICE = 'choice', 'Choice'
+
+    name = models.CharField(max_length=200)
+    field_type = models.CharField(max_length=20, choices=FieldType.choices)
+    choices = models.TextField(blank=True)
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='custom_field_definitions')
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_custom_field_definitions')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        unique_together = ('research_database', 'name')
+        indexes = [models.Index(fields=['research_database', 'field_type']), models.Index(fields=['research_database', 'name'])]
+
+    def __str__(self):
+        return f'{self.name} ({self.get_field_type_display()})'
+
+    def parsed_choices(self):
+        if self.field_type != self.FieldType.CHOICE:
+            return []
+        return [choice.strip() for choice in self.choices.split(',') if choice.strip()]
+
+
+class CustomFieldValue(models.Model):
+    strain = models.ForeignKey(Strain, on_delete=models.CASCADE, related_name='custom_field_values')
+    field_definition = models.ForeignKey(CustomFieldDefinition, on_delete=models.CASCADE, related_name='values')
+    value_text = models.TextField(null=True, blank=True)
+    value_number = models.FloatField(null=True, blank=True)
+    value_date = models.DateField(null=True, blank=True)
+    value_boolean = models.BooleanField(null=True, blank=True)
+    value_choice = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['strain', 'field_definition'], name='unique_strain_custom_field_value')]
+        indexes = [
+            models.Index(fields=['field_definition', 'value_choice']),
+            models.Index(fields=['field_definition', 'value_number']),
+            models.Index(fields=['field_definition', 'value_date']),
+            models.Index(fields=['strain', 'field_definition']),
+        ]
+
+    def __str__(self):
+        return f'{self.strain} | {self.field_definition.name}'
+
+    @property
+    def display_value(self):
+        field_type = self.field_definition.field_type
+        if field_type == CustomFieldDefinition.FieldType.TEXT:
+            return self.value_text
+        if field_type == CustomFieldDefinition.FieldType.NUMBER:
+            return self.value_number
+        if field_type == CustomFieldDefinition.FieldType.DATE:
+            return self.value_date
+        if field_type == CustomFieldDefinition.FieldType.BOOLEAN:
+            if self.value_boolean is None:
+                return ''
+            return 'Yes' if self.value_boolean else 'No'
+        if field_type == CustomFieldDefinition.FieldType.CHOICE:
+            return self.value_choice
+        return ''
+
+
 class StrainPlasmid(models.Model):
     strain = models.ForeignKey(Strain, on_delete=models.CASCADE)
     plasmid = models.ForeignKey(Plasmid, on_delete=models.CASCADE)

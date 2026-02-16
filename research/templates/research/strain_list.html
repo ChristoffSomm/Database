@@ -9,7 +9,7 @@
   </div>
 
   <form method="get" class="grid gap-3 rounded-lg border border-slate-700 bg-slate-800 p-4 md:grid-cols-4">
-    <input type="search" name="q" value="{{ search_query }}" placeholder="Search strain ID or name" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+    <input type="search" name="q" value="{{ search_query }}" placeholder="Search strain ID, name, or custom fields" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
     <select name="status" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
       <option value="">All statuses</option>
       {% for value, label in status_choices %}
@@ -23,6 +23,32 @@
       {% endfor %}
     </select>
     <button type="submit" class="rounded-md bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600">Apply Filters</button>
+
+    {% for definition in custom_field_filters %}
+      <div class="md:col-span-2">
+        <label for="cf_{{ definition.id }}" class="mb-1 block text-xs uppercase tracking-wide text-slate-400">{{ definition.name }}</label>
+        {% if definition.field_type == 'choice' %}
+          <select id="cf_{{ definition.id }}" name="cf_{{ definition.id }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+            <option value="">Any</option>
+            {% for option in definition.options %}
+              <option value="{{ option }}" {% if definition.selected_value == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        {% elif definition.field_type == 'boolean' %}
+          <select id="cf_{{ definition.id }}" name="cf_{{ definition.id }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+            <option value="">Any</option>
+            <option value="true" {% if definition.selected_value == 'true' %}selected{% endif %}>Yes</option>
+            <option value="false" {% if definition.selected_value == 'false' %}selected{% endif %}>No</option>
+          </select>
+        {% elif definition.field_type == 'date' %}
+          <input id="cf_{{ definition.id }}" type="date" name="cf_{{ definition.id }}" value="{{ definition.selected_value }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+        {% elif definition.field_type == 'number' %}
+          <input id="cf_{{ definition.id }}" type="number" step="any" name="cf_{{ definition.id }}" value="{{ definition.selected_value }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+        {% else %}
+          <input id="cf_{{ definition.id }}" type="text" name="cf_{{ definition.id }}" value="{{ definition.selected_value }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+        {% endif %}
+      </div>
+    {% endfor %}
   </form>
 
   <div class="overflow-hidden rounded-lg border border-slate-700 bg-slate-800">
