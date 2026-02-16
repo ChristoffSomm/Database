@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}{{ plasmid.name }} | Plasmid{% endblock %}
+{% block content %}
+<div class="rounded-lg border border-slate-700 bg-slate-800 p-4 space-y-2">
+  <h2 class="text-2xl font-bold">{{ plasmid.name }}</h2>
+  <p><span class="text-slate-400">Resistance marker:</span> {{ plasmid.resistance_marker }}</p>
+  <p><span class="text-slate-400">Notes:</span> {{ plasmid.notes|default:'—' }}</p>
+</div>
+{% endblock %}
