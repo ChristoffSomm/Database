@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Memberships | Strain DB{% endblock %}
+{% block header_title %}Database Memberships{% endblock %}
+
+{% block content %}
+<h2 class="mb-4 text-2xl font-bold">Memberships{% if current_database %} — {{ current_database.name }}{% endif %}</h2>
+<div class="overflow-hidden rounded border border-slate-700 bg-slate-800">
+  <table class="w-full text-left">
+    <thead class="bg-slate-900">
+      <tr>
+        <th class="px-4 py-3">User</th>
+        <th class="px-4 py-3">Role</th>
+        <th class="px-4 py-3">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for membership in memberships %}
+      <tr class="border-t border-slate-700">
+        <td class="px-4 py-3">{{ membership.user.username }}</td>
+        <td class="px-4 py-3">{{ membership.get_role_display }}</td>
+        <td class="px-4 py-3">
+          <form method="post" action="{% url 'membership-update-role' membership.id %}" class="flex gap-2">
+            {% csrf_token %}
+            <select name="role" class="rounded border border-slate-700 bg-slate-900 px-2 py-1">
+              {% for value, label in membership.Role.choices %}
+                <option value="{{ value }}" {% if membership.role == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="rounded bg-primary px-3 py-1 font-semibold text-black">Update</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

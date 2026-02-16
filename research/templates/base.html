@@ -13,13 +13,13 @@
     <aside class="fixed inset-y-0 left-0 z-30 w-64 border-r border-slate-800 bg-[#14161c] px-5 py-6">
       <div class="mb-8 text-xl font-bold tracking-wide text-primary">StrainDB</div>
       <nav class="space-y-2 text-sm font-medium">
-        <a href="{% url 'dashboard' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Dashboard</a>
-        <a href="{% url 'strain-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Strains</a>
-        <a href="#" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Organisms</a>
-        <a href="#" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Plasmids</a>
-        <a href="#" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Locations</a>
-        <a href="#" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Files</a>
-        <a href="/admin/" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Admin</a>
+        {% if current_database %}
+          <a href="{% url 'dashboard' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Dashboard</a>
+          <a href="{% url 'strain-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Strains</a>
+          <a href="{% url 'membership-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Memberships</a>
+          <a href="/admin/" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Admin</a>
+        {% endif %}
+        <a href="{% url 'database-select' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Select Database</a>
         <form method="post" action="{% url 'logout' %}">
           {% csrf_token %}
           <button type="submit" class="w-full rounded-md px-3 py-2 text-left text-slate-200 transition hover:bg-card-bg hover:text-primary">Logout</button>
@@ -30,20 +30,33 @@
     <div class="ml-64">
       <header class="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-800 bg-[#1c1f26]/95 px-6 backdrop-blur">
         <h1 class="text-lg font-semibold text-slate-100">{% block header_title %}Dashboard{% endblock %}</h1>
-        <details class="relative">
-          <summary class="flex cursor-pointer list-none items-center gap-3 rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-200">
-            <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary font-semibold text-black">U</span>
-            <span>User Profile</span>
-          </summary>
-          <div class="absolute right-0 mt-2 w-44 rounded-md border border-slate-700 bg-card-bg p-1 shadow-xl">
-            <a href="#" class="block rounded px-3 py-2 text-sm text-slate-200 hover:bg-slate-700">Profile</a>
-            <a href="#" class="block rounded px-3 py-2 text-sm text-slate-200 hover:bg-slate-700">Settings</a>
-            <form method="post" action="{% url 'logout' %}">
-              {% csrf_token %}
-              <button type="submit" class="block w-full rounded px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700">Sign out</button>
-            </form>
-          </div>
-        </details>
+        <div class="flex items-center gap-4">
+          {% if available_memberships %}
+          <form method="post" action="{% url 'database-switch' %}" class="flex items-center gap-2">
+            {% csrf_token %}
+            <select name="database_id" onchange="this.form.submit()" class="rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-100">
+              {% for membership in available_memberships %}
+                <option value="{{ membership.database.id }}" {% if current_database and membership.database.id == current_database.id %}selected{% endif %}>
+                  {{ membership.database.name }} ({{ membership.get_role_display }})
+                </option>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="next" value="{{ request.path }}">
+          </form>
+          {% endif %}
+          <details class="relative">
+            <summary class="flex cursor-pointer list-none items-center gap-3 rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-200">
+              <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary font-semibold text-black">U</span>
+              <span>{{ user.username }}</span>
+            </summary>
+            <div class="absolute right-0 mt-2 w-44 rounded-md border border-slate-700 bg-card-bg p-1 shadow-xl">
+              <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit" class="block w-full rounded px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700">Sign out</button>
+              </form>
+            </div>
+          </details>
+        </div>
       </header>
 
       <main class="p-6 lg:p-8">
