@@ -18,9 +18,40 @@ class ResearchDatabase(models.Model):
     def __str__(self):
         return self.name
 
+    def get_user_role(self, user):
+        if not user or not getattr(user, 'is_authenticated', False):
+            return None
+        membership = self.memberships.filter(user=user).only('role').first()
+        return membership.role if membership else None
+
+    def is_owner(self, user):
+        return self.get_user_role(user) == DatabaseMembership.Role.OWNER
+
+    def can_edit(self, user):
+        return self.get_user_role(user) in {
+            DatabaseMembership.Role.OWNER,
+            DatabaseMembership.Role.ADMIN,
+            DatabaseMembership.Role.EDITOR,
+        }
+
+    def can_view(self, user):
+        return self.get_user_role(user) in {
+            DatabaseMembership.Role.OWNER,
+            DatabaseMembership.Role.ADMIN,
+            DatabaseMembership.Role.EDITOR,
+            DatabaseMembership.Role.VIEWER,
+        }
+
+    def can_manage_members(self, user):
+        return self.get_user_role(user) in {
+            DatabaseMembership.Role.OWNER,
+            DatabaseMembership.Role.ADMIN,
+        }
+
 
 class DatabaseMembership(models.Model):
     class Role(models.TextChoices):
+        OWNER = 'owner', 'Owner'
         ADMIN = 'admin', 'Admin'
         EDITOR = 'editor', 'Editor'
         VIEWER = 'viewer', 'Viewer'
