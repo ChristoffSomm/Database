@@ -1,8 +1,8 @@
 from django.shortcuts import redirect
 from django.urls import reverse
 
+from .helpers import SESSION_DATABASE_KEY, clear_current_user, get_active_database, set_current_user
 from .models import DatabaseMembership
-from .helpers import SESSION_DATABASE_KEY, clear_current_user, set_current_user
 
 
 class LoginRequiredMiddleware:
@@ -29,47 +29,44 @@ class LoginRequiredMiddleware:
             clear_current_user()
 
 
-class CurrentDatabaseMiddleware:
-    """Ensure a logged-in user has a valid active research database selected."""
+class ActiveDatabaseMiddleware:
+    """Attach the active database to requests and keep session selection valid."""
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
+        request.active_database = None
         request.current_database = None
+
         if not request.user.is_authenticated:
             return self.get_response(request)
 
-        selection_path = reverse('database-select')
-        switch_path = reverse('database-switch')
         exempt_prefixes = (
-            selection_path,
-            switch_path,
+            reverse('database-create'),
+            reverse('database-select'),
+            reverse('database-switch'),
+            '/switch-database/',
             '/admin/',
             '/static/',
             '/media/',
         )
-
-        database_id = request.session.get(SESSION_DATABASE_KEY)
-        membership = None
-        if database_id:
-            membership = DatabaseMembership.objects.select_related('research_database').filter(
-                user=request.user,
-                research_database_id=database_id,
-            ).first()
-            if membership:
-                request.current_database = membership.research_database
-            else:
-                request.session.pop(SESSION_DATABASE_KEY, None)
-
-        has_any_membership = DatabaseMembership.objects.filter(user=request.user).exists()
         if request.path.startswith(exempt_prefixes):
             return self.get_response(request)
 
-        if not has_any_membership:
-            return redirect(selection_path)
+        active_database = get_active_database(request)
+        if hasattr(active_database, 'status_code'):
+            return active_database
 
-        if request.current_database is None:
-            return redirect(selection_path)
+        if active_database and not DatabaseMembership.objects.filter(user=request.user, research_database=active_database).exists():
+            request.session.pop(SESSION_DATABASE_KEY, None)
+            active_database = get_active_database(request)
+            if hasattr(active_database, 'status_code'):
+                return active_database
 
+        request.active_database = active_database
+        request.current_database = active_database
         return self.get_response(request)
+
+
+CurrentDatabaseMiddleware = ActiveDatabaseMiddleware

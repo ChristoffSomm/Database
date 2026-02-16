@@ -1,6 +1,6 @@
 from django import forms
 
-from .helpers import get_current_database, get_custom_field_definitions
+from .helpers import get_active_database, get_custom_field_definitions
 from .models import CustomFieldDefinition, CustomFieldValue, Location, Organism, Plasmid, Strain
 
 
@@ -56,7 +56,7 @@ class StrainForm(forms.ModelForm):
     def _get_current_database(self):
         if not self.request:
             return None
-        return getattr(self.request, 'current_database', None) or get_current_database(self.request)
+        return getattr(self.request, 'active_database', None) or get_active_database(self.request)
 
     def _custom_field_name(self, definition_id):
         return f'custom_field_{definition_id}'

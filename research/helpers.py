@@ -2,10 +2,13 @@ from threading import local
 
 from django.core.exceptions import PermissionDenied
 from django.forms.models import model_to_dict
+from django.shortcuts import redirect
+from django.urls import reverse
 
 from .models import ActivityLog, CustomFieldDefinition, CustomFieldValue, DatabaseMembership, ResearchDatabase
 
-SESSION_DATABASE_KEY = 'current_database'
+SESSION_DATABASE_KEY = 'active_database_id'
+LEGACY_SESSION_DATABASE_KEY = 'current_database'
 _REQUEST_STATE = local()
 
 
@@ -44,22 +47,53 @@ def get_membership_for_database(user, research_database):
     return DatabaseMembership.objects.filter(user=user, research_database=research_database).first()
 
 
-def get_current_database(request):
+def get_active_database(request):
+    """Resolve and persist the authenticated user's active database.
+
+    Returns:
+        ResearchDatabase instance when available.
+        HttpResponseRedirect to database creation when user has no memberships.
+        None for anonymous requests.
+    """
+
     if not request.user.is_authenticated:
         return None
 
-    database_id = request.session.get(SESSION_DATABASE_KEY)
-    if not database_id:
-        return None
+    database_id = request.session.get(SESSION_DATABASE_KEY) or request.session.get(LEGACY_SESSION_DATABASE_KEY)
+    if database_id:
+        active_database = ResearchDatabase.objects.filter(
+            id=database_id,
+            memberships__user=request.user,
+        ).distinct().first()
+        if active_database:
+            request.session[SESSION_DATABASE_KEY] = active_database.id
+            if LEGACY_SESSION_DATABASE_KEY in request.session:
+                request.session.pop(LEGACY_SESSION_DATABASE_KEY, None)
+            return active_database
 
-    return ResearchDatabase.objects.filter(
-        id=database_id,
-        memberships__user=request.user,
-    ).distinct().first()
+    membership = (
+        DatabaseMembership.objects.select_related('research_database')
+        .filter(user=request.user)
+        .order_by('research_database__name', 'research_database_id')
+        .first()
+    )
+    if membership:
+        request.session[SESSION_DATABASE_KEY] = membership.research_database_id
+        request.session.pop(LEGACY_SESSION_DATABASE_KEY, None)
+        return membership.research_database
+
+    return redirect(reverse('database-create'))
+
+
+def get_current_database(request):
+    """Backward compatible alias for older imports."""
+
+    return get_active_database(request)
 
 
 def set_current_database(request, research_database):
     request.session[SESSION_DATABASE_KEY] = research_database.id
+    request.session.pop(LEGACY_SESSION_DATABASE_KEY, None)
 
 
 def user_has_role(user, research_database, allowed_roles):
@@ -70,7 +104,9 @@ def user_has_role(user, research_database, allowed_roles):
 
 
 def require_database_role(request, allowed_roles):
-    research_database = getattr(request, 'current_database', None) or get_current_database(request)
+    research_database = getattr(request, 'active_database', None) or get_active_database(request)
+    if hasattr(research_database, 'status_code'):
+        return research_database
     if not user_has_role(request.user, research_database, allowed_roles):
         raise PermissionDenied('You do not have permission for this operation.')
     return research_database
