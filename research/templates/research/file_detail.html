@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}{{ file_obj.filename }} | File{% endblock %}
+{% block content %}
+<div class="rounded-lg border border-slate-700 bg-slate-800 p-4 space-y-2">
+  <h2 class="text-2xl font-bold">{{ file_obj.filename }}</h2>
+  <p><span class="text-slate-400">Strain:</span> <a class="text-primary hover:underline" href="{{ file_obj.strain.get_absolute_url }}">{{ file_obj.strain.strain_id }}</a></p>
+  <p><span class="text-slate-400">Uploaded by:</span> {{ file_obj.uploaded_by }}</p>
+  <p><span class="text-slate-400">Uploaded at:</span> {{ file_obj.uploaded_at }}</p>
+  <p><a href="{{ file_obj.file.url }}" class="text-primary hover:underline">Download file</a></p>
+</div>
+{% endblock %}

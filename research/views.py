@@ -1,15 +1,16 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views import View
 from django.views.generic import DetailView, ListView, TemplateView
 
+from .forms import GlobalSearchForm
 from .helpers import SESSION_DATABASE_KEY, get_current_database
-from .models import DatabaseMembership, Organism, Plasmid, ResearchDatabase, Strain
+from .models import DatabaseMembership, File, Location, Organism, Plasmid, ResearchDatabase, Strain
 
 
 class CurrentDatabaseQuerysetMixin:
@@ -130,3 +131,86 @@ class StrainDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailV
     context_object_name = 'strain'
     slug_field = 'strain_id'
     slug_url_kwarg = 'strain_id'
+
+
+class OrganismDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailView):
+    model = Organism
+    template_name = 'research/organism_detail.html'
+    context_object_name = 'organism'
+
+
+class PlasmidDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailView):
+    model = Plasmid
+    template_name = 'research/plasmid_detail.html'
+    context_object_name = 'plasmid'
+
+
+class LocationDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailView):
+    model = Location
+    template_name = 'research/location_detail.html'
+    context_object_name = 'location'
+
+
+class FileDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailView):
+    model = File
+    template_name = 'research/file_detail.html'
+    context_object_name = 'file_obj'
+
+
+class SearchResultsView(LoginRequiredMixin, TemplateView):
+    template_name = 'research/search_results.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        current_database = getattr(request, 'current_database', None) or get_current_database(request)
+        membership = DatabaseMembership.objects.filter(user=request.user, research_database=current_database).first()
+        if current_database is None or membership is None:
+            raise PermissionDenied('Insufficient permissions for this database.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        form = GlobalSearchForm(self.request.GET or None)
+        context['form'] = form
+        context['query'] = ''
+
+        grouped_results = {
+            'strains': [],
+            'organisms': [],
+            'plasmids': [],
+            'locations': [],
+            'files': [],
+        }
+
+        if form.is_valid():
+            query = form.cleaned_data.get('q', '')
+            context['query'] = query
+            if query:
+                current_database = self.request.current_database
+                grouped_results['strains'] = list(
+                    Strain.objects.filter(research_database=current_database).filter(
+                        Q(strain_id__icontains=query) | Q(name__icontains=query)
+                    )[:50]
+                )
+                grouped_results['organisms'] = list(
+                    Organism.objects.filter(research_database=current_database, name__icontains=query)[:50]
+                )
+                grouped_results['plasmids'] = list(
+                    Plasmid.objects.filter(research_database=current_database, name__icontains=query)[:50]
+                )
+                grouped_results['locations'] = list(
+                    Location.objects.filter(research_database=current_database).filter(
+                        Q(building__icontains=query)
+                        | Q(freezer__icontains=query)
+                        | Q(box__icontains=query)
+                        | Q(position__icontains=query)
+                    )[:50]
+                )
+                grouped_results['files'] = list(
+                    File.objects.filter(research_database=current_database, file__icontains=query)
+                    .select_related('strain')[:50]
+                )
+
+        context['grouped_results'] = grouped_results
+        context['result_counts'] = {key: len(values) for key, values in grouped_results.items()}
+        context['total_results'] = sum(context['result_counts'].values())
+        return context

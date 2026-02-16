@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.db import models
+from django.urls import reverse
 
 User = get_user_model()
 
@@ -49,6 +50,9 @@ class Organism(models.Model):
     def __str__(self):
         return self.name
 
+    def get_absolute_url(self):
+        return reverse('organism-detail', kwargs={'pk': self.pk})
+
 
 class Location(models.Model):
     research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='locations')
@@ -68,6 +72,9 @@ class Location(models.Model):
     def __str__(self):
         return f'{self.building} / {self.room} / {self.freezer} / {self.box} / {self.position}'
 
+    def get_absolute_url(self):
+        return reverse('location-detail', kwargs={'pk': self.pk})
+
 
 class Plasmid(models.Model):
     research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='plasmids')
@@ -81,6 +88,9 @@ class Plasmid(models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_absolute_url(self):
+        return reverse('plasmid-detail', kwargs={'pk': self.pk})
 
 
 class Strain(models.Model):
@@ -107,12 +117,16 @@ class Strain(models.Model):
         unique_together = ('research_database', 'strain_id')
         indexes = [
             models.Index(fields=['research_database', 'strain_id']),
+            models.Index(fields=['research_database', 'name']),
             models.Index(fields=['research_database', 'status']),
             models.Index(fields=['research_database', 'updated_at']),
         ]
 
     def __str__(self):
         return f'{self.strain_id} - {self.name}'
+
+    def get_absolute_url(self):
+        return reverse('strain-detail', kwargs={'strain_id': self.strain_id})
 
 
 class StrainPlasmid(models.Model):
@@ -134,10 +148,21 @@ class File(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=['research_database', 'uploaded_at']), models.Index(fields=['strain', 'uploaded_at'])]
+        indexes = [
+            models.Index(fields=['research_database', 'file']),
+            models.Index(fields=['research_database', 'uploaded_at']),
+            models.Index(fields=['strain', 'uploaded_at']),
+        ]
 
     def __str__(self):
         return f'{self.strain.strain_id}: {self.file.name}'
+
+    @property
+    def filename(self):
+        return self.file.name.rsplit('/', 1)[-1]
+
+    def get_absolute_url(self):
+        return reverse('file-detail', kwargs={'pk': self.pk})
 
 
 class AuditLog(models.Model):

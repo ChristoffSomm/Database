@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block title %}Search{% endblock %}
+{% block header_title %}Global Search{% endblock %}
+{% block content %}
+<div class="space-y-6">
+  <form method="get" action="{% url 'search-results' %}" class="rounded-lg border border-slate-700 bg-slate-800 p-4">
+    <label for="id_search_q" class="mb-2 block text-sm font-medium text-slate-200">Search in {{ current_database.name }}</label>
+    <div class="flex flex-col gap-3 md:flex-row">
+      <input
+        id="id_search_q"
+        name="q"
+        type="search"
+        value="{{ query }}"
+        placeholder="Search strains, organisms, plasmids, locations, files"
+        class="w-full rounded-md border border-slate-700 bg-card-bg px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:border-primary focus:outline-none"
+      >
+      <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black">Search</button>
+    </div>
+  </form>
+
+  {% if query %}
+    <div class="text-sm text-slate-300">{{ total_results }} result{{ total_results|pluralize }} for "{{ query }}".</div>
+
+    <section class="space-y-2 rounded-lg border border-slate-700 bg-slate-800 p-4">
+      <h2 class="text-lg font-semibold text-slate-100">Strains ({{ result_counts.strains }})</h2>
+      <ul class="space-y-1 text-sm">
+        {% for strain in grouped_results.strains %}
+          <li><a href="{{ strain.get_absolute_url }}" class="text-primary hover:underline">{{ strain.strain_id }} — {{ strain.name }}</a></li>
+        {% empty %}
+          <li class="text-slate-400">No matching strains.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="space-y-2 rounded-lg border border-slate-700 bg-slate-800 p-4">
+      <h2 class="text-lg font-semibold text-slate-100">Organisms ({{ result_counts.organisms }})</h2>
+      <ul class="space-y-1 text-sm">
+        {% for organism in grouped_results.organisms %}
+          <li><a href="{{ organism.get_absolute_url }}" class="text-primary hover:underline">{{ organism.name }}</a></li>
+        {% empty %}
+          <li class="text-slate-400">No matching organisms.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="space-y-2 rounded-lg border border-slate-700 bg-slate-800 p-4">
+      <h2 class="text-lg font-semibold text-slate-100">Plasmids ({{ result_counts.plasmids }})</h2>
+      <ul class="space-y-1 text-sm">
+        {% for plasmid in grouped_results.plasmids %}
+          <li><a href="{{ plasmid.get_absolute_url }}" class="text-primary hover:underline">{{ plasmid.name }}</a></li>
+        {% empty %}
+          <li class="text-slate-400">No matching plasmids.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="space-y-2 rounded-lg border border-slate-700 bg-slate-800 p-4">
+      <h2 class="text-lg font-semibold text-slate-100">Locations ({{ result_counts.locations }})</h2>
+      <ul class="space-y-1 text-sm">
+        {% for location in grouped_results.locations %}
+          <li><a href="{{ location.get_absolute_url }}" class="text-primary hover:underline">{{ location }}</a></li>
+        {% empty %}
+          <li class="text-slate-400">No matching locations.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="space-y-2 rounded-lg border border-slate-700 bg-slate-800 p-4">
+      <h2 class="text-lg font-semibold text-slate-100">Files ({{ result_counts.files }})</h2>
+      <ul class="space-y-1 text-sm">
+        {% for file_obj in grouped_results.files %}
+          <li>
+            <a href="{{ file_obj.get_absolute_url }}" class="text-primary hover:underline">{{ file_obj.filename }}</a>
+            <span class="text-slate-400">(strain: {{ file_obj.strain.strain_id }})</span>
+          </li>
+        {% empty %}
+          <li class="text-slate-400">No matching files.</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% else %}
+    <p class="text-slate-300">Enter a term to search across strains, organisms, plasmids, locations, and files in the selected database.</p>
+  {% endif %}
+</div>
+{% endblock %}

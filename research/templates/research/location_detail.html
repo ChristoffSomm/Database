@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Location | Strain DB{% endblock %}
+{% block content %}
+<div class="rounded-lg border border-slate-700 bg-slate-800 p-4 space-y-2">
+  <h2 class="text-2xl font-bold">Location</h2>
+  <p><span class="text-slate-400">Building:</span> {{ location.building }}</p>
+  <p><span class="text-slate-400">Room:</span> {{ location.room }}</p>
+  <p><span class="text-slate-400">Freezer:</span> {{ location.freezer }}</p>
+  <p><span class="text-slate-400">Box:</span> {{ location.box }}</p>
+  <p><span class="text-slate-400">Position:</span> {{ location.position }}</p>
+</div>
+{% endblock %}
