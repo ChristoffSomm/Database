@@ -4,13 +4,13 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import DetailView, ListView, TemplateView
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from .forms import GlobalSearchForm
+from .forms import GlobalSearchForm, StrainForm
 from .helpers import SESSION_DATABASE_KEY, get_current_database
-from .models import DatabaseMembership, File, Location, Organism, Plasmid, ResearchDatabase, Strain
+from .models import AuditLog, DatabaseMembership, File, Location, Organism, Plasmid, ResearchDatabase, Strain
 
 
 class CurrentDatabaseQuerysetMixin:
@@ -31,14 +31,16 @@ class DatabasePermissionMixin:
     allowed_roles = ()
 
     def dispatch(self, request, *args, **kwargs):
-        if self.allowed_roles:
-            current_database = getattr(request, 'current_database', None) or get_current_database(request)
-            membership = DatabaseMembership.objects.filter(
-                user=request.user,
-                research_database=current_database,
-            ).first()
-            if not membership or membership.role not in self.allowed_roles:
-                raise PermissionDenied('Insufficient permissions for this database.')
+        current_database = getattr(request, 'current_database', None) or get_current_database(request)
+        membership = DatabaseMembership.objects.filter(
+            user=request.user,
+            research_database=current_database,
+        ).first()
+        if current_database is None or membership is None:
+            raise PermissionDenied('Insufficient permissions for this database.')
+
+        if self.allowed_roles and membership.role not in self.allowed_roles:
+            raise PermissionDenied('Insufficient permissions for this database.')
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -56,7 +58,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
-        strains = Strain.objects.filter(research_database=current_database)
+        strains = Strain.objects.filter(research_database=current_database, is_active=True)
         organisms = Organism.objects.filter(research_database=current_database)
         plasmids = Plasmid.objects.filter(research_database=current_database)
 
@@ -118,19 +120,137 @@ class DatabaseMembershipUpdateRoleView(LoginRequiredMixin, AdminRequiredMixin, V
         return HttpResponseRedirect(reverse('membership-list'))
 
 
-class StrainListView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, ListView):
+class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, ListView):
     model = Strain
     template_name = 'research/strain_list.html'
     context_object_name = 'strains'
     paginate_by = 25
 
+    def get_queryset(self):
+        queryset = (
+            super()
+            .get_queryset()
+            .filter(is_active=True)
+            .select_related('organism', 'location')
+            .prefetch_related('plasmids')
+        )
 
-class StrainDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailView):
+        search_query = self.request.GET.get('q', '').strip()
+        status = self.request.GET.get('status', '').strip()
+        organism_id = self.request.GET.get('organism', '').strip()
+
+        if search_query:
+            queryset = queryset.filter(Q(strain_id__icontains=search_query) | Q(name__icontains=search_query))
+        if status:
+            queryset = queryset.filter(status=status)
+        if organism_id:
+            queryset = queryset.filter(organism_id=organism_id)
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        current_database = self.get_current_database()
+        context['search_query'] = self.request.GET.get('q', '').strip()
+        context['selected_status'] = self.request.GET.get('status', '').strip()
+        context['selected_organism'] = self.request.GET.get('organism', '').strip()
+        context['status_choices'] = Strain.Status.choices
+        context['organisms'] = Organism.objects.filter(research_database=current_database).order_by('name')
+        return context
+
+
+class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, DetailView):
     model = Strain
     template_name = 'research/strain_detail.html'
     context_object_name = 'strain'
-    slug_field = 'strain_id'
-    slug_url_kwarg = 'strain_id'
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(is_active=True)
+            .select_related('organism', 'location', 'created_by')
+            .prefetch_related('plasmids', 'files')
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        strain = context['strain']
+        context['history'] = AuditLog.objects.filter(
+            Q(record_type__iexact='strain'),
+            Q(record_id=str(strain.pk)) | Q(record_id=str(strain.strain_id)),
+        )[:20]
+        return context
+
+
+class StrainCreateView(LoginRequiredMixin, EditorRequiredMixin, CreateView):
+    model = Strain
+    form_class = StrainForm
+    template_name = 'research/strain_form.html'
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['request'] = self.request
+        return kwargs
+
+    def form_valid(self, form):
+        form.instance.created_by = self.request.user
+        response = super().form_valid(form)
+        messages.success(self.request, f'Strain {self.object.strain_id} created successfully.')
+        AuditLog.objects.create(
+            user=self.request.user,
+            action='created',
+            record_type='strain',
+            record_id=str(self.object.pk),
+        )
+        return response
+
+
+class StrainUpdateView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQuerysetMixin, UpdateView):
+    model = Strain
+    form_class = StrainForm
+    template_name = 'research/strain_form.html'
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['request'] = self.request
+        return kwargs
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f'Strain {self.object.strain_id} updated successfully.')
+        AuditLog.objects.create(
+            user=self.request.user,
+            action='updated',
+            record_type='strain',
+            record_id=str(self.object.pk),
+        )
+        return response
+
+
+class StrainDeleteView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQuerysetMixin, DeleteView):
+    model = Strain
+    template_name = 'research/strain_confirm_delete.html'
+    success_url = reverse_lazy('strain-list')
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True)
+
+    def form_valid(self, form):
+        self.object = self.get_object()
+        self.object.is_active = False
+        self.object.save(update_fields=['is_active', 'updated_at'])
+        AuditLog.objects.create(
+            user=self.request.user,
+            action='deleted',
+            record_type='strain',
+            record_id=str(self.object.pk),
+        )
+        messages.success(self.request, f'Strain {self.object.strain_id} deleted successfully.')
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class OrganismDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailView):
@@ -187,7 +307,7 @@ class SearchResultsView(LoginRequiredMixin, TemplateView):
             if query:
                 current_database = self.request.current_database
                 grouped_results['strains'] = list(
-                    Strain.objects.filter(research_database=current_database).filter(
+                    Strain.objects.filter(research_database=current_database, is_active=True).filter(
                         Q(strain_id__icontains=query) | Q(name__icontains=query)
                     )[:50]
                 )

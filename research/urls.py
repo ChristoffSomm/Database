@@ -10,8 +10,11 @@ from .views import (
     PlasmidDetailView,
     SearchResultsView,
     SelectDatabaseView,
+    StrainCreateView,
+    StrainDeleteView,
     StrainDetailView,
     StrainListView,
+    StrainUpdateView,
     SwitchDatabaseView,
 )
 
@@ -28,7 +31,10 @@ urlpatterns = [
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path('search/', SearchResultsView.as_view(), name='search-results'),
     path('strains/', StrainListView.as_view(), name='strain-list'),
-    path('strains/<slug:strain_id>/', StrainDetailView.as_view(), name='strain-detail'),
+    path('strains/create/', StrainCreateView.as_view(), name='strain-create'),
+    path('strains/<int:pk>/', StrainDetailView.as_view(), name='strain-detail'),
+    path('strains/<int:pk>/update/', StrainUpdateView.as_view(), name='strain-update'),
+    path('strains/<int:pk>/delete/', StrainDeleteView.as_view(), name='strain-delete'),
     path('organisms/<int:pk>/', OrganismDetailView.as_view(), name='organism-detail'),
     path('plasmids/<int:pk>/', PlasmidDetailView.as_view(), name='plasmid-detail'),
     path('locations/<int:pk>/', LocationDetailView.as_view(), name='location-detail'),

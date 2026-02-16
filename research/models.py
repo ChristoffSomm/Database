@@ -110,6 +110,7 @@ class Strain(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_strains')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True, db_index=True)
     plasmids = models.ManyToManyField(Plasmid, through='StrainPlasmid', related_name='strains', blank=True)
 
     class Meta:
@@ -126,7 +127,7 @@ class Strain(models.Model):
         return f'{self.strain_id} - {self.name}'
 
     def get_absolute_url(self):
-        return reverse('strain-detail', kwargs={'strain_id': self.strain_id})
+        return reverse('strain-detail', kwargs={'pk': self.pk})
 
 
 class StrainPlasmid(models.Model):

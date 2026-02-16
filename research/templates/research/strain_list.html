@@ -1,22 +1,71 @@
 {% extends 'base.html' %}
 {% block title %}Strains | Strain DB{% endblock %}
+{% block header_title %}Strains{% endblock %}
 {% block content %}
-<h2 class="text-2xl font-bold mb-6">Strain List</h2>
-<div class="bg-slate-800 rounded border border-slate-700 overflow-hidden">
-  <table class="w-full text-left">
-    <thead class="bg-slate-900"><tr><th class="px-4 py-3">Strain ID</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Organism</th><th class="px-4 py-3">Status</th></tr></thead>
-    <tbody>
-      {% for strain in strains %}
-      <tr class="border-t border-slate-700 hover:bg-slate-700/30">
-        <td class="px-4 py-2"><a class="text-[#00c853]" href="{% url 'strain-detail' strain_id=strain.strain_id %}">{{ strain.strain_id }}</a></td>
-        <td class="px-4 py-2">{{ strain.name }}</td>
-        <td class="px-4 py-2">{{ strain.organism.name }}</td>
-        <td class="px-4 py-2">{{ strain.get_status_display }}</td>
-      </tr>
-      {% empty %}
-      <tr><td class="px-4 py-3" colspan="4">No strains found.</td></tr>
+<div class="space-y-6">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <h2 class="text-2xl font-bold">Strain List</h2>
+    <a href="{% url 'strain-create' %}" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Create Strain</a>
+  </div>
+
+  <form method="get" class="grid gap-3 rounded-lg border border-slate-700 bg-slate-800 p-4 md:grid-cols-4">
+    <input type="search" name="q" value="{{ search_query }}" placeholder="Search strain ID or name" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+    <select name="status" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+      <option value="">All statuses</option>
+      {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
-    </tbody>
-  </table>
+    </select>
+    <select name="organism" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+      <option value="">All organisms</option>
+      {% for organism in organisms %}
+        <option value="{{ organism.id }}" {% if selected_organism == organism.id|stringformat:'s' %}selected{% endif %}>{{ organism.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="rounded-md bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600">Apply Filters</button>
+  </form>
+
+  <div class="overflow-hidden rounded-lg border border-slate-700 bg-slate-800">
+    <table class="min-w-full divide-y divide-slate-700 text-sm">
+      <thead class="bg-slate-900 text-slate-300">
+        <tr>
+          <th class="px-4 py-3 text-left">Strain ID</th>
+          <th class="px-4 py-3 text-left">Name</th>
+          <th class="px-4 py-3 text-left">Organism</th>
+          <th class="px-4 py-3 text-left">Location</th>
+          <th class="px-4 py-3 text-left">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-700">
+        {% for strain in strains %}
+          <tr class="hover:bg-slate-700/30">
+            <td class="px-4 py-3"><a class="text-primary hover:underline" href="{% url 'strain-detail' strain.pk %}">{{ strain.strain_id }}</a></td>
+            <td class="px-4 py-3">{{ strain.name }}</td>
+            <td class="px-4 py-3">{{ strain.organism.name }}</td>
+            <td class="px-4 py-3">{{ strain.location }}</td>
+            <td class="px-4 py-3">{{ strain.get_status_display }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td class="px-4 py-4 text-slate-400" colspan="5">No active strains found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+    <div class="flex items-center justify-between">
+      <span class="text-sm text-slate-400">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      <div class="flex gap-2">
+        {% if page_obj.has_previous %}
+          <a href="?q={{ search_query }}&status={{ selected_status }}&organism={{ selected_organism }}&page={{ page_obj.previous_page_number }}" class="rounded-md border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-700">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a href="?q={{ search_query }}&status={{ selected_status }}&organism={{ selected_organism }}&page={{ page_obj.next_page_number }}" class="rounded-md border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-700">Next</a>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
 </div>
 {% endblock %}
