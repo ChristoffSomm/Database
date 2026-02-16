@@ -163,6 +163,37 @@ class Strain(models.Model):
     def get_absolute_url(self):
         return reverse('strain-detail', kwargs={'pk': self.pk})
 
+    def save(self, *args, **kwargs):
+        from .helpers import get_current_user
+        from .versioning import serialize_strain_snapshot
+
+        skip_version = kwargs.pop('skip_version', False)
+        changed_by = kwargs.pop('changed_by', None)
+        is_update = bool(self.pk) and not self._state.adding
+        if is_update and not skip_version:
+            previous_state = Strain.objects.filter(pk=self.pk).first()
+            if previous_state is not None:
+                StrainVersion.objects.create(
+                    strain=previous_state,
+                    changed_by=changed_by or get_current_user(),
+                    snapshot=serialize_strain_snapshot(previous_state),
+                )
+        return super().save(*args, **kwargs)
+
+
+class StrainVersion(models.Model):
+    strain = models.ForeignKey(Strain, on_delete=models.CASCADE, related_name='versions')
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    snapshot = models.JSONField()
+
+    class Meta:
+        ordering = ['-changed_at']
+        indexes = [models.Index(fields=['strain', 'changed_at'])]
+
+    def __str__(self):
+        return f'StrainVersion<{self.strain_id}> @ {self.changed_at.isoformat()}'
+
 
 class CustomFieldDefinition(models.Model):
     class FieldType(models.TextChoices):

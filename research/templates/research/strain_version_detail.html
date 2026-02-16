@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Version {{ version.pk }} | {{ strain.strain_id }}{% endblock %}
+{% block header_title %}Version Diff{% endblock %}
+{% block content %}
+<div class="space-y-4">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div>
+      <h2 class="text-2xl font-bold">{{ strain.strain_id }} — Version #{{ version.pk }}</h2>
+      <p class="text-sm text-slate-400">{{ version.changed_at }} by {{ version.changed_by|default:'System' }}</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'strain-history' strain.pk %}" class="rounded-md bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600">Back to History</a>
+      {% if can_restore %}
+      <form method="post" action="{% url 'strain-version-restore' strain.pk version.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-slate-950 hover:opacity-90">Restore This Version</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="space-y-2">
+    {% for item in diff_items %}
+      <div class="rounded-lg border border-slate-700 bg-slate-800 p-4">
+        <p class="mb-2 text-sm font-semibold text-primary">{{ item.field }}</p>
+        <div class="grid gap-2 md:grid-cols-2">
+          <div class="rounded-md border border-red-700/70 bg-red-950/30 p-3">
+            <p class="text-xs uppercase tracking-wide text-red-400">Old</p>
+            <p class="break-all text-sm text-red-200">{{ item.old|default:'-' }}</p>
+          </div>
+          <div class="rounded-md border border-green-700/70 bg-green-950/30 p-3">
+            <p class="text-xs uppercase tracking-wide text-green-400">New</p>
+            <p class="break-all text-sm text-green-200">{{ item.new|default:'-' }}</p>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="rounded-lg border border-slate-700 bg-slate-800 p-4 text-slate-400">No differences found for this version.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
