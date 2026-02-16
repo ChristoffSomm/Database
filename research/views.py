@@ -11,7 +11,7 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 from .forms import CustomFieldDefinitionForm, GlobalSearchForm, StrainForm
 from .helpers import SESSION_DATABASE_KEY, get_current_database, get_custom_field_definitions, get_custom_field_values
 from .models import (
-    AuditLog,
+    ActivityLog,
     CustomFieldDefinition,
     DatabaseMembership,
     File,
@@ -282,9 +282,10 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         strain = context['strain']
-        context['history'] = AuditLog.objects.filter(
-            Q(record_type__iexact='strain'),
-            Q(record_id=str(strain.pk)) | Q(record_id=str(strain.strain_id)),
+        context['history'] = ActivityLog.objects.filter(
+            model_name='Strain',
+            object_id=str(strain.pk),
+            research_database=strain.research_database,
         )[:20]
         context['custom_field_values'] = get_custom_field_values(strain)
         return context
@@ -304,12 +305,6 @@ class StrainCreateView(LoginRequiredMixin, EditorRequiredMixin, CreateView):
         form.instance.created_by = self.request.user
         response = super().form_valid(form)
         messages.success(self.request, f'Strain {self.object.strain_id} created successfully.')
-        AuditLog.objects.create(
-            user=self.request.user,
-            action='created',
-            record_type='strain',
-            record_id=str(self.object.pk),
-        )
         return response
 
 
@@ -329,12 +324,6 @@ class StrainUpdateView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQ
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, f'Strain {self.object.strain_id} updated successfully.')
-        AuditLog.objects.create(
-            user=self.request.user,
-            action='updated',
-            record_type='strain',
-            record_id=str(self.object.pk),
-        )
         return response
 
 
@@ -350,12 +339,6 @@ class StrainDeleteView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQ
         self.object = self.get_object()
         self.object.is_active = False
         self.object.save(update_fields=['is_active', 'updated_at'])
-        AuditLog.objects.create(
-            user=self.request.user,
-            action='deleted',
-            record_type='strain',
-            record_id=str(self.object.pk),
-        )
         messages.success(self.request, f'Strain {self.object.strain_id} deleted successfully.')
         return HttpResponseRedirect(self.get_success_url())
 
@@ -445,4 +428,55 @@ class SearchResultsView(LoginRequiredMixin, TemplateView):
         context['grouped_results'] = grouped_results
         context['result_counts'] = {key: len(values) for key, values in grouped_results.items()}
         context['total_results'] = sum(context['result_counts'].values())
+        return context
+
+
+class ActivityFeedView(LoginRequiredMixin, DatabasePermissionMixin, ListView):
+    template_name = 'research/activity_feed.html'
+    context_object_name = 'activity_logs'
+    paginate_by = 25
+
+    def get_queryset(self):
+        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
+        queryset = ActivityLog.objects.filter(research_database=current_database).select_related('user', 'research_database')
+
+        user_id = self.request.GET.get('user', '').strip()
+        model_name = self.request.GET.get('model_name', '').strip()
+        action = self.request.GET.get('action', '').strip()
+        start_date = self.request.GET.get('start_date', '').strip()
+        end_date = self.request.GET.get('end_date', '').strip()
+
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        if model_name:
+            queryset = queryset.filter(model_name__iexact=model_name)
+        if action:
+            queryset = queryset.filter(action=action)
+        if start_date:
+            queryset = queryset.filter(timestamp__date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(timestamp__date__lte=end_date)
+
+        return queryset.order_by('-timestamp')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
+        context['selected_user'] = self.request.GET.get('user', '').strip()
+        context['selected_model_name'] = self.request.GET.get('model_name', '').strip()
+        context['selected_action'] = self.request.GET.get('action', '').strip()
+        context['selected_start_date'] = self.request.GET.get('start_date', '').strip()
+        context['selected_end_date'] = self.request.GET.get('end_date', '').strip()
+        context['users'] = (
+            DatabaseMembership.objects.filter(research_database=current_database)
+            .select_related('user')
+            .order_by('user__username')
+        )
+        context['actions'] = ActivityLog.Action.choices
+        context['model_names'] = (
+            ActivityLog.objects.filter(research_database=current_database)
+            .order_by('model_name')
+            .values_list('model_name', flat=True)
+            .distinct()
+        )
         return context

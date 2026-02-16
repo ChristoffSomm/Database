@@ -16,6 +16,7 @@
         {% if current_database %}
           <a href="{% url 'dashboard' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Dashboard — {{ current_database.name }}</a>
           <a href="{% url 'strain-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Strains</a>
+          <a href="{% url 'activity-feed' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Activity</a>
           <a href="{% url 'membership-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Memberships</a>
           <a href="/admin/" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Admin</a>
         {% endif %}

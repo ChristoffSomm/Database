@@ -234,6 +234,34 @@ class File(models.Model):
         return reverse('file-detail', kwargs={'pk': self.pk})
 
 
+class ActivityLog(models.Model):
+    """Immutable audit record for data mutations in core research models."""
+
+    class Action(models.TextChoices):
+        CREATE = 'create', 'Create'
+        UPDATE = 'update', 'Update'
+        DELETE = 'delete', 'Delete'
+
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='activity_logs')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='activity_logs')
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    model_name = models.CharField(max_length=120, db_index=True)
+    object_id = models.CharField(max_length=120, db_index=True)
+    action = models.CharField(max_length=20, choices=Action.choices, db_index=True)
+    changes = models.JSONField(default=dict, blank=True)
+    summary = models.TextField()
+
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['research_database', 'timestamp']),
+            models.Index(fields=['research_database', 'model_name', 'action']),
+        ]
+
+    def __str__(self):
+        return f'{self.timestamp.isoformat()} | {self.model_name}({self.object_id}) | {self.action}'
+
+
 class AuditLog(models.Model):
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     action = models.CharField(max_length=120)

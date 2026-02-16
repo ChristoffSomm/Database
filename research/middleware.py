@@ -2,7 +2,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 
 from .models import DatabaseMembership
-from .helpers import SESSION_DATABASE_KEY
+from .helpers import SESSION_DATABASE_KEY, clear_current_user, set_current_user
 
 
 class LoginRequiredMiddleware:
@@ -20,9 +20,13 @@ class LoginRequiredMiddleware:
             '/static/',
             '/media/',
         )
-        if not request.user.is_authenticated and not request.path.startswith(exempt_prefixes):
-            return redirect(f'{login_url}?next={request.path}')
-        return self.get_response(request)
+        set_current_user(request.user if request.user.is_authenticated else None)
+        try:
+            if not request.user.is_authenticated and not request.path.startswith(exempt_prefixes):
+                return redirect(f'{login_url}?next={request.path}')
+            return self.get_response(request)
+        finally:
+            clear_current_user()
 
 
 class CurrentDatabaseMiddleware:
