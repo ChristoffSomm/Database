@@ -1,14 +1,21 @@
-{% if available_memberships %}
-<form method="post" action="{% url 'database-switch' %}" class="flex items-center gap-2">
-  {% csrf_token %}
-  <span class="text-xs uppercase tracking-wide text-slate-400">Database</span>
-  <select name="database_id" onchange="this.form.submit()" class="rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-100">
+{% if available_memberships|length > 1 and active_database %}
+<details class="relative">
+  <summary class="flex cursor-pointer list-none items-center gap-2 rounded-md border border-slate-700 bg-[#20242d] px-3 py-1.5 text-sm text-slate-100">
+    <span class="text-xs uppercase tracking-wide text-slate-400">Database</span>
+    <span class="font-medium text-primary">{{ active_database.name }}</span>
+  </summary>
+  <div class="absolute right-0 mt-2 w-72 rounded-md border border-slate-700 bg-[#161a22] p-1 shadow-2xl">
     {% for membership in available_memberships %}
-      <option value="{{ membership.research_database.id }}" {% if current_database and membership.research_database.id == current_database.id %}selected{% endif %}>
-        {{ membership.research_database.name }} ({{ membership.get_role_display }})
-      </option>
+      <a
+        href="{% url 'switch_database' membership.research_database.id %}"
+        class="mb-1 block rounded px-3 py-2 text-sm transition {% if membership.research_database.id == active_database.id %}bg-primary text-black{% else %}text-slate-200 hover:bg-slate-700{% endif %}"
+      >
+        <span class="font-medium">{{ membership.research_database.name }}</span>
+        <span class="ml-2 text-xs uppercase tracking-wide {% if membership.research_database.id == active_database.id %}text-black/70{% else %}text-slate-400{% endif %}">
+          {{ membership.get_role_display }}
+        </span>
+      </a>
     {% endfor %}
-  </select>
-  <input type="hidden" name="next" value="{{ request.path }}">
-</form>
+  </div>
+</details>
 {% endif %}

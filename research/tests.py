@@ -77,17 +77,25 @@ class DatabaseIsolationTests(TestCase):
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
-class CurrentDatabaseMiddlewareTests(TestCase):
+class ActiveDatabaseMiddlewareTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = User.objects.create_user(username='bob', password='pass123')
         self.database = ResearchDatabase.objects.create(name='DB-1', created_by=self.user)
 
-    def test_redirects_to_database_selection_when_unset(self):
+    def test_auto_selects_first_membership_when_session_unset(self):
         self.client.force_login(self.user)
 
         response = self.client.get(reverse('dashboard'))
-        self.assertRedirects(response, reverse('database-select'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(SESSION_DATABASE_KEY), self.database.id)
+
+    def test_redirects_to_create_when_user_has_no_memberships(self):
+        lone_user = User.objects.create_user(username='no-memberships', password='pass123')
+        self.client.force_login(lone_user)
+
+        response = self.client.get(reverse('dashboard'))
+        self.assertRedirects(response, reverse('database-create'))
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -155,6 +163,12 @@ class DatabaseSelectorTests(TestCase):
     def test_switch_database_sets_session_value(self):
         self.client.force_login(self.user)
         response = self.client.post(reverse('database-switch'), {'database_id': self.database.id})
+        self.assertRedirects(response, reverse('dashboard'))
+        self.assertEqual(self.client.session.get(SESSION_DATABASE_KEY), self.database.id)
+
+    def test_switch_database_get_route_sets_session_value(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('switch_database', kwargs={'database_id': self.database.id}))
         self.assertRedirects(response, reverse('dashboard'))
         self.assertEqual(self.client.session.get(SESSION_DATABASE_KEY), self.database.id)
 

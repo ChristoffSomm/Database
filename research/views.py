@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth import get_user_model
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Q
 from django.http import HttpResponseRedirect
@@ -9,7 +10,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from .forms import CustomFieldDefinitionForm, GlobalSearchForm, StrainForm
-from .helpers import SESSION_DATABASE_KEY, get_current_database, get_custom_field_definitions, get_custom_field_values
+from .helpers import SESSION_DATABASE_KEY, get_active_database, get_custom_field_definitions, get_custom_field_values
 from .models import (
     ActivityLog,
     CustomFieldDefinition,
@@ -29,15 +30,15 @@ User = get_user_model()
 class CurrentDatabaseQuerysetMixin:
     """Filter list/detail querysets to the active research database."""
 
-    def get_current_database(self):
-        return getattr(self.request, 'current_database', None) or get_current_database(self.request)
+    def get_active_database(self):
+        return getattr(self.request, 'active_database', None) or get_active_database(self.request)
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        current_database = self.get_current_database()
-        if current_database is None:
+        active_database = self.get_active_database()
+        if active_database is None:
             return queryset.none()
-        return queryset.filter(research_database=current_database)
+        return queryset.filter(research_database=active_database)
 
 
 class EditorRequiredMixin(DatabasePermissionMixin):
@@ -54,10 +55,10 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        current_database = self.get_current_database()
-        strains = Strain.objects.filter(research_database=current_database, is_active=True)
-        organisms = Organism.objects.filter(research_database=current_database)
-        plasmids = Plasmid.objects.filter(research_database=current_database)
+        active_database = self.get_active_database()
+        strains = Strain.objects.filter(research_database=active_database, is_active=True)
+        organisms = Organism.objects.filter(research_database=active_database)
+        plasmids = Plasmid.objects.filter(research_database=active_database)
 
         context['strain_count'] = strains.count()
         context['organism_count'] = organisms.count()
@@ -66,9 +67,25 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
         context['approved_count'] = strains.filter(status=Strain.Status.APPROVED).count()
         context['archived_count'] = strains.filter(status=Strain.Status.ARCHIVED).count()
         context['recent_organisms'] = organisms.annotate(total=Count('strains')).order_by('-total')[:5]
-        context['can_edit'] = current_database.can_edit(self.request.user)
-        context['can_manage_members'] = current_database.can_manage_members(self.request.user)
+        context['can_edit'] = active_database.can_edit(self.request.user)
+        context['can_manage_members'] = active_database.can_manage_members(self.request.user)
         return context
+
+
+class CreateDatabaseView(LoginRequiredMixin, CreateView):
+    model = ResearchDatabase
+    template_name = 'research/database_form.html'
+    fields = ['name', 'description']
+
+    def form_valid(self, form):
+        form.instance.created_by = self.request.user
+        response = super().form_valid(form)
+        self.request.session[SESSION_DATABASE_KEY] = self.object.id
+        messages.success(self.request, f'Database "{self.object.name}" created successfully.')
+        return response
+
+    def get_success_url(self):
+        return reverse('dashboard')
 
 
 class SelectDatabaseView(LoginRequiredMixin, TemplateView):
@@ -77,20 +94,28 @@ class SelectDatabaseView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['memberships'] = DatabaseMembership.objects.select_related('research_database').filter(user=self.request.user)
-        context['current_database_id'] = self.request.session.get(SESSION_DATABASE_KEY)
+        context['active_database_id'] = self.request.session.get(SESSION_DATABASE_KEY)
         return context
+
+
+@login_required
+def switch_database(request, database_id):
+    database = get_object_or_404(
+        ResearchDatabase,
+        id=database_id,
+        memberships__user=request.user,
+    )
+    request.session[SESSION_DATABASE_KEY] = database.id
+    next_url = request.META.get('HTTP_REFERER') or reverse('dashboard')
+    return redirect(next_url)
 
 
 class SwitchDatabaseView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        database = get_object_or_404(
-            ResearchDatabase,
-            id=kwargs.get('database_id') or request.POST.get('database_id'),
-            memberships__user=request.user,
-        )
-        request.session[SESSION_DATABASE_KEY] = database.id
-        next_url = request.POST.get('next') or reverse('dashboard')
-        return redirect(next_url)
+        database_id = kwargs.get('database_id') or request.POST.get('database_id')
+        if not database_id:
+            return redirect(reverse('dashboard'))
+        return switch_database(request, database_id=int(database_id))
 
 
 class DatabaseMembersView(LoginRequiredMixin, MemberManagerRequiredMixin, ListView):
@@ -98,11 +123,11 @@ class DatabaseMembersView(LoginRequiredMixin, MemberManagerRequiredMixin, ListVi
     context_object_name = 'memberships'
 
     def get_queryset(self):
-        current_database = self.get_current_database()
-        return DatabaseMembership.objects.filter(research_database=current_database).select_related('user', 'research_database')
+        active_database = self.get_active_database()
+        return DatabaseMembership.objects.filter(research_database=active_database).select_related('user', 'research_database')
 
     def post(self, request, *args, **kwargs):
-        current_database = self.get_current_database()
+        active_database = self.get_active_database()
         username = (request.POST.get('username') or '').strip()
         role = (request.POST.get('role') or DatabaseMembership.Role.VIEWER).strip()
         valid_roles = {choice[0] for choice in DatabaseMembership.Role.choices}
@@ -122,7 +147,7 @@ class DatabaseMembersView(LoginRequiredMixin, MemberManagerRequiredMixin, ListVi
 
         membership, created = DatabaseMembership.objects.get_or_create(
             user=user,
-            research_database=current_database,
+            research_database=active_database,
             defaults={'role': role},
         )
         if created:
@@ -137,17 +162,17 @@ class DatabaseMembersView(LoginRequiredMixin, MemberManagerRequiredMixin, ListVi
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['role_choices'] = DatabaseMembership.Role.choices
-        context['is_owner'] = self.get_current_database().is_owner(self.request.user)
+        context['is_owner'] = self.get_active_database().is_owner(self.request.user)
         return context
 
 
 class DatabaseMembershipUpdateRoleView(LoginRequiredMixin, MemberManagerRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        current_database = getattr(request, 'current_database', None) or get_current_database(request)
+        active_database = getattr(request, 'active_database', None) or get_active_database(request)
         membership = get_object_or_404(
             DatabaseMembership,
             id=kwargs['membership_id'],
-            research_database=current_database,
+            research_database=active_database,
         )
         role = request.POST.get('role')
         valid_roles = {choice[0] for choice in DatabaseMembership.Role.choices}
@@ -156,11 +181,11 @@ class DatabaseMembershipUpdateRoleView(LoginRequiredMixin, MemberManagerRequired
             messages.error(request, 'Invalid role selected.')
             return HttpResponseRedirect(reverse('membership-list'))
 
-        if membership.role == DatabaseMembership.Role.OWNER and not current_database.is_owner(request.user):
+        if membership.role == DatabaseMembership.Role.OWNER and not active_database.is_owner(request.user):
             messages.error(request, 'Only the owner can change the owner role.')
             return HttpResponseRedirect(reverse('membership-list'))
 
-        if role == DatabaseMembership.Role.OWNER and not current_database.is_owner(request.user):
+        if role == DatabaseMembership.Role.OWNER and not active_database.is_owner(request.user):
             messages.error(request, 'Only the owner can transfer ownership.')
             return HttpResponseRedirect(reverse('membership-list'))
 
@@ -172,11 +197,11 @@ class DatabaseMembershipUpdateRoleView(LoginRequiredMixin, MemberManagerRequired
 
 class DatabaseMembershipRemoveView(LoginRequiredMixin, MemberManagerRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        current_database = getattr(request, 'current_database', None) or get_current_database(request)
+        active_database = getattr(request, 'active_database', None) or get_active_database(request)
         membership = get_object_or_404(
             DatabaseMembership,
             id=kwargs['membership_id'],
-            research_database=current_database,
+            research_database=active_database,
         )
 
         if membership.role == DatabaseMembership.Role.OWNER:
@@ -193,13 +218,13 @@ class DatabaseTransferOwnershipView(LoginRequiredMixin, DatabasePermissionMixin,
     required_permission = 'owner'
 
     def post(self, request, *args, **kwargs):
-        current_database = getattr(request, 'current_database', None) or get_current_database(request)
+        active_database = getattr(request, 'active_database', None) or get_active_database(request)
         new_owner = get_object_or_404(
             DatabaseMembership,
             id=kwargs['membership_id'],
-            research_database=current_database,
+            research_database=active_database,
         )
-        current_owner = current_database.memberships.filter(role=DatabaseMembership.Role.OWNER).first()
+        current_owner = active_database.memberships.filter(role=DatabaseMembership.Role.OWNER).first()
 
         if current_owner and current_owner.id == new_owner.id:
             messages.info(request, f'{new_owner.user.username} is already the owner.')
@@ -221,8 +246,8 @@ class CustomFieldDefinitionListView(LoginRequiredMixin, EditorRequiredMixin, Lis
     context_object_name = 'custom_field_definitions'
 
     def get_queryset(self):
-        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
-        return CustomFieldDefinition.objects.filter(research_database=current_database).order_by('name')
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        return CustomFieldDefinition.objects.filter(research_database=active_database).order_by('name')
 
 
 class CustomFieldDefinitionCreateView(LoginRequiredMixin, EditorRequiredMixin, CreateView):
@@ -232,8 +257,8 @@ class CustomFieldDefinitionCreateView(LoginRequiredMixin, EditorRequiredMixin, C
     success_url = reverse_lazy('custom-field-definition-list')
 
     def form_valid(self, form):
-        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
-        form.instance.research_database = current_database
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        form.instance.research_database = active_database
         form.instance.created_by = self.request.user
         messages.success(self.request, f'Custom field "{form.instance.name}" created.')
         return super().form_valid(form)
@@ -246,8 +271,8 @@ class CustomFieldDefinitionUpdateView(LoginRequiredMixin, EditorRequiredMixin, U
     success_url = reverse_lazy('custom-field-definition-list')
 
     def get_queryset(self):
-        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
-        return CustomFieldDefinition.objects.filter(research_database=current_database)
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        return CustomFieldDefinition.objects.filter(research_database=active_database)
 
 
 class CustomFieldDefinitionDeleteView(LoginRequiredMixin, EditorRequiredMixin, DeleteView):
@@ -256,8 +281,8 @@ class CustomFieldDefinitionDeleteView(LoginRequiredMixin, EditorRequiredMixin, D
     success_url = reverse_lazy('custom-field-definition-list')
 
     def get_queryset(self):
-        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
-        return CustomFieldDefinition.objects.filter(research_database=current_database)
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        return CustomFieldDefinition.objects.filter(research_database=active_database)
 
 
 class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, ListView):
@@ -292,7 +317,7 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
         if organism_id:
             queryset = queryset.filter(organism_id=organism_id)
 
-        for definition in get_custom_field_definitions(self.get_current_database()):
+        for definition in get_custom_field_definitions(self.get_active_database()):
             field_key = f'cf_{definition.id}'
             raw_value = self.request.GET.get(field_key, '').strip()
             if raw_value == '':
@@ -331,13 +356,13 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        current_database = self.get_current_database()
-        definitions = list(get_custom_field_definitions(current_database))
+        active_database = self.get_active_database()
+        definitions = list(get_custom_field_definitions(active_database))
         context['search_query'] = self.request.GET.get('q', '').strip()
         context['selected_status'] = self.request.GET.get('status', '').strip()
         context['selected_organism'] = self.request.GET.get('organism', '').strip()
         context['status_choices'] = Strain.Status.choices
-        context['organisms'] = Organism.objects.filter(research_database=current_database).order_by('name')
+        context['organisms'] = Organism.objects.filter(research_database=active_database).order_by('name')
         context['custom_field_filters'] = [
             {
                 'id': definition.id,
@@ -476,9 +501,9 @@ class SearchResultsView(LoginRequiredMixin, DatabasePermissionMixin, TemplateVie
             query = form.cleaned_data.get('q', '')
             context['query'] = query
             if query:
-                current_database = self.request.current_database
+                active_database = self.request.active_database
                 grouped_results['strains'] = list(
-                    Strain.objects.filter(research_database=current_database, is_active=True)
+                    Strain.objects.filter(research_database=active_database, is_active=True)
                     .filter(
                         Q(strain_id__icontains=query)
                         | Q(name__icontains=query)
@@ -488,13 +513,13 @@ class SearchResultsView(LoginRequiredMixin, DatabasePermissionMixin, TemplateVie
                     .distinct()[:50]
                 )
                 grouped_results['organisms'] = list(
-                    Organism.objects.filter(research_database=current_database, name__icontains=query)[:50]
+                    Organism.objects.filter(research_database=active_database, name__icontains=query)[:50]
                 )
                 grouped_results['plasmids'] = list(
-                    Plasmid.objects.filter(research_database=current_database, name__icontains=query)[:50]
+                    Plasmid.objects.filter(research_database=active_database, name__icontains=query)[:50]
                 )
                 grouped_results['locations'] = list(
-                    Location.objects.filter(research_database=current_database).filter(
+                    Location.objects.filter(research_database=active_database).filter(
                         Q(building__icontains=query)
                         | Q(freezer__icontains=query)
                         | Q(box__icontains=query)
@@ -502,7 +527,7 @@ class SearchResultsView(LoginRequiredMixin, DatabasePermissionMixin, TemplateVie
                     )[:50]
                 )
                 grouped_results['files'] = list(
-                    File.objects.filter(research_database=current_database, file__icontains=query)
+                    File.objects.filter(research_database=active_database, file__icontains=query)
                     .select_related('strain')[:50]
                 )
 
@@ -519,8 +544,8 @@ class ActivityFeedView(LoginRequiredMixin, DatabasePermissionMixin, ListView):
     required_permission = 'view'
 
     def get_queryset(self):
-        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
-        queryset = ActivityLog.objects.filter(research_database=current_database).select_related('user', 'research_database')
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        queryset = ActivityLog.objects.filter(research_database=active_database).select_related('user', 'research_database')
 
         user_id = self.request.GET.get('user', '').strip()
         model_name = self.request.GET.get('model_name', '').strip()
@@ -543,20 +568,20 @@ class ActivityFeedView(LoginRequiredMixin, DatabasePermissionMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
         context['selected_user'] = self.request.GET.get('user', '').strip()
         context['selected_model_name'] = self.request.GET.get('model_name', '').strip()
         context['selected_action'] = self.request.GET.get('action', '').strip()
         context['selected_start_date'] = self.request.GET.get('start_date', '').strip()
         context['selected_end_date'] = self.request.GET.get('end_date', '').strip()
         context['users'] = (
-            DatabaseMembership.objects.filter(research_database=current_database)
+            DatabaseMembership.objects.filter(research_database=active_database)
             .select_related('user')
             .order_by('user__username')
         )
         context['actions'] = ActivityLog.Action.choices
         context['model_names'] = (
-            ActivityLog.objects.filter(research_database=current_database)
+            ActivityLog.objects.filter(research_database=active_database)
             .order_by('model_name')
             .values_list('model_name', flat=True)
             .distinct()

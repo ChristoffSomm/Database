@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Create Database | Strain DB{% endblock %}
+{% block header_title %}Create Database{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl rounded-xl border border-slate-700 bg-card-bg p-6">
+  <h2 class="mb-4 text-2xl font-bold text-slate-100">Create Research Database</h2>
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div>
+      <label for="id_name" class="mb-1 block text-sm text-slate-300">Name</label>
+      {{ form.name }}
+    </div>
+    <div>
+      <label for="id_description" class="mb-1 block text-sm text-slate-300">Description</label>
+      {{ form.description }}
+    </div>
+    <button type="submit" class="rounded bg-primary px-4 py-2 font-semibold text-black">Create</button>
+  </form>
+</div>
+{% endblock %}

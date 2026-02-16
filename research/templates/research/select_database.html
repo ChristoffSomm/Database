@@ -18,13 +18,14 @@
           <div>
             <input type="hidden" name="database_id" value="{{ membership.research_database.id }}">
             <input type="hidden" name="next" value="{% url 'dashboard' %}">
-            <button type="submit" class="rounded bg-primary px-4 py-2 font-semibold text-black">{% if current_database_id == membership.research_database.id %}Selected{% else %}Select{% endif %}</button>
+            <button type="submit" class="rounded bg-primary px-4 py-2 font-semibold text-black">{% if active_database_id == membership.research_database.id %}Selected{% else %}Select{% endif %}</button>
           </div>
         </form>
       {% endfor %}
     </div>
   {% else %}
-    <p class="text-slate-300">You are not currently a member of any research database.</p>
+    <p class="text-slate-300">You are not currently a member of any research database. Create one to get started.</p>
+    <a href="{% url 'database-create' %}" class="mt-4 inline-flex rounded bg-primary px-4 py-2 font-semibold text-black">Create Database</a>
   {% endif %}
 </div>
 {% endblock %}

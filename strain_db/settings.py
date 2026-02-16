@@ -23,10 +23,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'research.middleware.ActiveDatabaseMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'research.middleware.LoginRequiredMiddleware',
-    'research.middleware.CurrentDatabaseMiddleware',
 ]
 
 ROOT_URLCONF = 'strain_db.urls'

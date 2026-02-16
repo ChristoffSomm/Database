@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     ActivityFeedView,
+    CreateDatabaseView,
     CustomFieldDefinitionCreateView,
     CustomFieldDefinitionDeleteView,
     CustomFieldDefinitionListView,
@@ -23,12 +24,15 @@ from .views import (
     StrainListView,
     StrainUpdateView,
     SwitchDatabaseView,
+    switch_database,
 )
 
 urlpatterns = [
+    path('databases/create/', CreateDatabaseView.as_view(), name='database-create'),
     path('databases/select/', SelectDatabaseView.as_view(), name='database-select'),
     path('databases/switch/', SwitchDatabaseView.as_view(), name='database-switch'),
     path('databases/switch/<int:database_id>/', SwitchDatabaseView.as_view(), name='database-switch-id'),
+    path('switch-database/<int:database_id>/', switch_database, name='switch_database'),
     path('databases/memberships/', DatabaseMembersView.as_view(), name='membership-list'),
     path(
         'databases/memberships/<int:membership_id>/role/',
