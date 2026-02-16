@@ -3,6 +3,8 @@ from django.contrib import admin
 from .helpers import SESSION_DATABASE_KEY
 from .models import (
     AuditLog,
+    CustomFieldDefinition,
+    CustomFieldValue,
     DatabaseMembership,
     File,
     Location,
@@ -21,6 +23,9 @@ class DatabaseScopedAdmin(admin.ModelAdmin):
         if obj is not None and hasattr(obj, 'research_database'):
             return obj.research_database
 
+        if obj is not None and hasattr(obj, 'strain'):
+            return obj.strain.research_database
+
         db_id = request.session.get(SESSION_DATABASE_KEY)
         if db_id:
             return ResearchDatabase.objects.filter(id=db_id).first()
@@ -36,14 +41,20 @@ class DatabaseScopedAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
-        if request.user.is_superuser or not hasattr(self.model, 'research_database'):
+        if request.user.is_superuser:
             return queryset
 
         db_id = request.session.get(SESSION_DATABASE_KEY)
         if not db_id:
             return queryset.none()
 
-        return queryset.filter(research_database_id=db_id)
+        if hasattr(self.model, 'research_database'):
+            return queryset.filter(research_database_id=db_id)
+
+        if self.model is CustomFieldValue:
+            return queryset.filter(strain__research_database_id=db_id)
+
+        return queryset
 
     def has_add_permission(self, request):
         database = self._database_for_obj(request)
@@ -86,6 +97,20 @@ class StrainAdmin(DatabaseScopedAdmin):
     search_fields = ('strain_id', 'name', 'genotype')
     list_filter = ('status', 'organism', 'research_database')
     inlines = [StrainPlasmidInline]
+
+
+@admin.register(CustomFieldDefinition)
+class CustomFieldDefinitionAdmin(DatabaseScopedAdmin):
+    list_display = ('name', 'field_type', 'research_database', 'created_by', 'created_at')
+    list_filter = ('field_type', 'research_database', 'created_at')
+    search_fields = ('name', 'choices', 'research_database__name', 'created_by__username')
+
+
+@admin.register(CustomFieldValue)
+class CustomFieldValueAdmin(DatabaseScopedAdmin):
+    list_display = ('strain', 'field_definition', 'value_text', 'value_number', 'value_date', 'value_boolean', 'value_choice')
+    list_filter = ('field_definition__field_type', 'field_definition__research_database')
+    search_fields = ('strain__strain_id', 'field_definition__name', 'value_text', 'value_choice')
 
 
 @admin.register(Organism)

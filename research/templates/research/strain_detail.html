@@ -30,6 +30,17 @@
     </div>
   </div>
 
+  <div class="rounded-lg border border-slate-700 bg-slate-800 p-4">
+    <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">Custom Fields</h3>
+    <ul class="space-y-1 text-sm">
+      {% for custom_field_value in custom_field_values %}
+        <li><span class="text-slate-400">{{ custom_field_value.field_definition.name }}:</span> {{ custom_field_value.display_value|default:'-' }}</li>
+      {% empty %}
+        <li class="text-slate-400">No custom field values.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
   <div class="grid gap-4 lg:grid-cols-3">
     <div class="rounded-lg border border-slate-700 bg-slate-800 p-4">
       <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">Related Plasmids</h3>

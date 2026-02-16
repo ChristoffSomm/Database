@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Custom Fields | Strain DB{% endblock %}
+{% block header_title %}Custom Fields{% endblock %}
+{% block content %}
+<div class="space-y-4">
+  <div class="flex items-center justify-between">
+    <h2 class="text-2xl font-bold">Custom Field Definitions</h2>
+    <a href="{% url 'custom-field-definition-create' %}" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black">Add Field</a>
+  </div>
+  <div class="rounded-lg border border-slate-700 bg-slate-800 p-4">
+    <ul class="space-y-2">
+      {% for definition in custom_field_definitions %}
+        <li class="flex items-center justify-between rounded border border-slate-700 p-3">
+          <span>{{ definition.name }} ({{ definition.get_field_type_display }})</span>
+          <span class="flex gap-2">
+            <a href="{% url 'custom-field-definition-update' definition.pk %}" class="text-primary hover:underline">Edit</a>
+            <a href="{% url 'custom-field-definition-delete' definition.pk %}" class="text-red-400 hover:underline">Delete</a>
+          </span>
+        </li>
+      {% empty %}
+        <li class="text-slate-400">No custom fields defined yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endblock %}

@@ -1,6 +1,6 @@
 from django.core.exceptions import PermissionDenied
 
-from .models import DatabaseMembership, ResearchDatabase
+from .models import CustomFieldDefinition, CustomFieldValue, DatabaseMembership, ResearchDatabase
 
 SESSION_DATABASE_KEY = 'current_database'
 
@@ -41,3 +41,15 @@ def require_database_role(request, allowed_roles):
     if not user_has_role(request.user, research_database, allowed_roles):
         raise PermissionDenied('You do not have permission for this operation.')
     return research_database
+
+
+def get_custom_field_definitions(research_database):
+    if research_database is None:
+        return CustomFieldDefinition.objects.none()
+    return CustomFieldDefinition.objects.filter(research_database=research_database).order_by('name', 'id')
+
+
+def get_custom_field_values(strain):
+    if strain is None:
+        return CustomFieldValue.objects.none()
+    return CustomFieldValue.objects.filter(strain=strain).select_related('field_definition').order_by('field_definition__name')
