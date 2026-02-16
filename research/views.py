@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
@@ -9,12 +10,14 @@ from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from .forms import CustomFieldDefinitionForm, GlobalSearchForm, SavedViewForm, StrainForm
+from .forms import BulkEditStrainsForm, CustomFieldDefinitionForm, GlobalSearchForm, SavedViewForm, StrainForm
 from .filtering import apply_filters
 from .helpers import SESSION_DATABASE_KEY, get_active_database, get_custom_field_definitions, get_custom_field_values
 from .models import (
     ActivityLog,
+    AuditLog,
     CustomFieldDefinition,
+    CustomFieldValue,
     DatabaseMembership,
     File,
     Location,
@@ -400,6 +403,10 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
             .prefetch_related('plasmids')
         )
 
+        include_archived = self.request.GET.get('include_archived', '').strip().lower() in {'1', 'true', 'yes'}
+        if not include_archived:
+            queryset = queryset.filter(is_archived=False)
+
         search_query = self.request.GET.get('q', '').strip()
         status = self.request.GET.get('status', '').strip()
         organism_id = self.request.GET.get('organism', '').strip()
@@ -480,6 +487,138 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
         ]
         context['saved_views'] = _saved_view_queryset_for_user(active_database, self.request.user).select_related('created_by').order_by('name')
         context['active_saved_view'] = self.request.GET.get('saved_view', '').strip()
+        context['can_bulk_edit'] = active_database.can_edit(self.request.user)
+        return context
+
+
+class BulkEditStrainsView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQuerysetMixin, TemplateView):
+    template_name = 'research/strain_bulk_edit.html'
+
+    def _selected_ids(self):
+        ids = self.request.POST.getlist('strain_ids')
+        return [int(pk) for pk in ids if str(pk).isdigit()]
+
+    def _selected_queryset(self):
+        active_database = self.get_active_database()
+        return Strain.objects.filter(
+            research_database=active_database,
+            is_active=True,
+            id__in=self._selected_ids(),
+        )
+
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        selected_strains = self._selected_queryset().select_related('organism', 'location').prefetch_related('plasmids')
+
+        if not selected_strains.exists():
+            messages.error(request, 'Please select at least one valid strain.')
+            return HttpResponseRedirect(reverse('strain-list'))
+
+        requested_count = len(self._selected_ids())
+        if selected_strains.count() != requested_count:
+            return HttpResponseBadRequest('Invalid strain selection for active database.')
+
+        action = (request.POST.get('bulk_action') or 'edit').strip()
+        if action == 'delete':
+            if not (active_database.is_owner(request.user) or active_database.get_user_role(request.user) == DatabaseMembership.Role.ADMIN):
+                return HttpResponseBadRequest('Only database owners/admins can bulk delete.')
+            count = selected_strains.update(is_active=False)
+            AuditLog.objects.create(
+                user=request.user,
+                action='bulk_delete',
+                record_type='Strain',
+                record_id=','.join(str(sid) for sid in selected_strains.values_list('id', flat=True)),
+            )
+            messages.success(request, f'{count} strains deleted successfully.')
+            return HttpResponseRedirect(reverse('strain-list'))
+
+        if action == 'archive':
+            count = selected_strains.update(is_archived=True)
+            AuditLog.objects.create(
+                user=request.user,
+                action='bulk_archive',
+                record_type='Strain',
+                record_id=','.join(str(sid) for sid in selected_strains.values_list('id', flat=True)),
+            )
+            messages.success(request, f'{count} strains archived successfully.')
+            return HttpResponseRedirect(reverse('strain-list'))
+
+        form = BulkEditStrainsForm(request.POST or None, request=request)
+        if request.POST.get('apply_bulk_edit') == '1':
+            if form.is_valid():
+                updated_fields = form.get_updated_model_fields()
+                updated_custom_fields = form.get_updated_custom_fields()
+
+                if not updated_fields and not updated_custom_fields:
+                    messages.error(request, 'Provide at least one field to update.')
+                    return self.render_to_response(self.get_context_data(form=form, selected_strains=selected_strains))
+
+                with transaction.atomic():
+                    for strain in selected_strains:
+                        update_fields = []
+                        for field_name, value in updated_fields.items():
+                            if field_name == 'plasmids':
+                                strain.plasmids.set(value)
+                                continue
+                            setattr(strain, field_name, value)
+                            update_fields.append(field_name)
+
+                        if update_fields:
+                            update_fields.append('updated_at')
+                            strain.save(update_fields=update_fields)
+
+                        for definition, value in updated_custom_fields.items():
+                            custom_value, _ = CustomFieldValue.objects.get_or_create(strain=strain, field_definition=definition)
+                            custom_value.value_text = None
+                            custom_value.value_number = None
+                            custom_value.value_date = None
+                            custom_value.value_boolean = None
+                            custom_value.value_choice = None
+
+                            if definition.field_type == CustomFieldDefinition.FieldType.TEXT:
+                                custom_value.value_text = value.strip() if isinstance(value, str) else value
+                            elif definition.field_type == CustomFieldDefinition.FieldType.NUMBER:
+                                custom_value.value_number = value
+                            elif definition.field_type == CustomFieldDefinition.FieldType.DATE:
+                                custom_value.value_date = value
+                            elif definition.field_type == CustomFieldDefinition.FieldType.BOOLEAN:
+                                custom_value.value_boolean = value
+                            elif definition.field_type == CustomFieldDefinition.FieldType.CHOICE:
+                                custom_value.value_choice = value
+                            custom_value.save()
+
+                updated_field_names = list(updated_fields.keys()) + [f'custom:{d.name}' for d in updated_custom_fields.keys()]
+                AuditLog.objects.create(
+                    user=request.user,
+                    action='bulk_update',
+                    record_type='Strain',
+                    record_id=','.join(str(sid) for sid in selected_strains.values_list('id', flat=True)),
+                )
+                ActivityLog.objects.create(
+                    research_database=active_database,
+                    user=request.user,
+                    model_name='Strain',
+                    object_id='bulk',
+                    action=ActivityLog.Action.UPDATE,
+                    changes={'fields': updated_field_names, 'count': selected_strains.count()},
+                    summary=f'Bulk updated {selected_strains.count()} strains. Fields: {", ".join(updated_field_names)}',
+                )
+                messages.success(request, f'Updated {selected_strains.count()} strains successfully.')
+                return HttpResponseRedirect(reverse('strain-list'))
+        else:
+            form = BulkEditStrainsForm(request=request)
+
+        return self.render_to_response(self.get_context_data(form=form, selected_strains=selected_strains))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.setdefault('form', BulkEditStrainsForm(request=self.request))
+        selected_strains = kwargs.get('selected_strains')
+        if selected_strains is None:
+            selected_strains = self._selected_queryset()
+        context['selected_strains'] = selected_strains
+        context['selected_count'] = selected_strains.count()
+        context['selected_ids'] = [strain.id for strain in selected_strains]
         return context
 
 

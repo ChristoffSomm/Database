@@ -196,3 +196,102 @@ class ResearchDatabaseMembershipHelperTests(TestCase):
         self.assertFalse(database.can_manage_members(viewer))
         self.assertFalse(database.can_edit(viewer))
         self.assertTrue(database.can_view(viewer))
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class BulkActionsTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.owner = User.objects.create_user(username='bulk-owner', password='pass123')
+        self.editor = User.objects.create_user(username='bulk-editor', password='pass123')
+        self.viewer = User.objects.create_user(username='bulk-viewer', password='pass123')
+        self.database = ResearchDatabase.objects.create(name='DB-Bulk', created_by=self.owner)
+
+        DatabaseMembership.objects.create(user=self.owner, research_database=self.database, role=DatabaseMembership.Role.OWNER)
+        DatabaseMembership.objects.create(user=self.editor, research_database=self.database, role=DatabaseMembership.Role.EDITOR)
+        DatabaseMembership.objects.create(user=self.viewer, research_database=self.database, role=DatabaseMembership.Role.VIEWER)
+
+        self.organism = Organism.objects.create(research_database=self.database, name='E. coli')
+        self.location = Location.objects.create(
+            research_database=self.database,
+            building='BLD',
+            room='R1',
+            freezer='F1',
+            box='B1',
+            position='P1',
+        )
+        self.strain_one = Strain.objects.create(
+            research_database=self.database,
+            strain_id='S-001',
+            name='One',
+            organism=self.organism,
+            genotype='WT',
+            location=self.location,
+            created_by=self.owner,
+        )
+        self.strain_two = Strain.objects.create(
+            research_database=self.database,
+            strain_id='S-002',
+            name='Two',
+            organism=self.organism,
+            genotype='WT',
+            location=self.location,
+            created_by=self.owner,
+        )
+
+    def _set_active_database(self):
+        session = self.client.session
+        session[SESSION_DATABASE_KEY] = self.database.id
+        session.save()
+
+    def test_bulk_edit_updates_selected_fields(self):
+        self.client.force_login(self.editor)
+        self._set_active_database()
+
+        response = self.client.post(
+            reverse('strain-bulk-edit'),
+            {
+                'bulk_action': 'edit',
+                'apply_bulk_edit': '1',
+                'strain_ids': [self.strain_one.id, self.strain_two.id],
+                'genotype': 'Updated',
+                'comments': 'Bulk comment',
+            },
+        )
+
+        self.assertRedirects(response, reverse('strain-list'))
+        self.strain_one.refresh_from_db()
+        self.strain_two.refresh_from_db()
+        self.assertEqual(self.strain_one.genotype, 'Updated')
+        self.assertEqual(self.strain_two.comments, 'Bulk comment')
+
+    def test_bulk_archive_marks_is_archived(self):
+        self.client.force_login(self.editor)
+        self._set_active_database()
+        response = self.client.post(
+            reverse('strain-bulk-edit'),
+            {'bulk_action': 'archive', 'strain_ids': [self.strain_one.id]},
+        )
+        self.assertRedirects(response, reverse('strain-list'))
+        self.strain_one.refresh_from_db()
+        self.assertTrue(self.strain_one.is_archived)
+
+    def test_bulk_delete_forbidden_for_editor(self):
+        self.client.force_login(self.editor)
+        self._set_active_database()
+        response = self.client.post(
+            reverse('strain-bulk-edit'),
+            {'bulk_action': 'delete', 'strain_ids': [self.strain_one.id]},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_bulk_delete_allowed_for_owner(self):
+        self.client.force_login(self.owner)
+        self._set_active_database()
+        response = self.client.post(
+            reverse('strain-bulk-edit'),
+            {'bulk_action': 'delete', 'strain_ids': [self.strain_one.id]},
+        )
+        self.assertRedirects(response, reverse('strain-list'))
+        self.strain_one.refresh_from_db()
+        self.assertFalse(self.strain_one.is_active)

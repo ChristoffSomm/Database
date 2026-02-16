@@ -51,10 +51,30 @@
     {% endfor %}
   </form>
 
+  {% if can_bulk_edit %}
+    <form method="post" action="{% url 'strain-bulk-edit' %}" id="bulk-actions-form" class="rounded-lg border border-slate-700 bg-slate-800 p-4">
+      {% csrf_token %}
+      <div class="flex flex-wrap items-center gap-3">
+        <select name="bulk_action" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+          <option value="edit">Edit selected</option>
+          <option value="delete">Delete selected</option>
+          <option value="archive">Archive selected</option>
+        </select>
+        <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Apply</button>
+        <span class="text-sm text-slate-300"><span id="selection-count">0</span> strains selected</span>
+      </div>
+    </form>
+  {% endif %}
+
   <div class="overflow-hidden rounded-lg border border-slate-700 bg-slate-800">
     <table class="min-w-full divide-y divide-slate-700 text-sm">
       <thead class="bg-slate-900 text-slate-300">
         <tr>
+          {% if can_bulk_edit %}
+            <th class="px-4 py-3 text-left">
+              <input id="select-all" type="checkbox" class="h-4 w-4 rounded border-slate-500 bg-slate-900 text-primary focus:ring-primary">
+            </th>
+          {% endif %}
           <th class="px-4 py-3 text-left">Strain ID</th>
           <th class="px-4 py-3 text-left">Name</th>
           <th class="px-4 py-3 text-left">Organism</th>
@@ -65,6 +85,11 @@
       <tbody class="divide-y divide-slate-700">
         {% for strain in strains %}
           <tr class="hover:bg-slate-700/30">
+            {% if can_bulk_edit %}
+              <td class="px-4 py-3">
+                <input form="bulk-actions-form" type="checkbox" name="strain_ids" value="{{ strain.id }}" class="strain-checkbox h-4 w-4 rounded border-slate-500 bg-slate-900 text-primary focus:ring-primary">
+              </td>
+            {% endif %}
             <td class="px-4 py-3"><a class="text-primary hover:underline" href="{% url 'strain-detail' strain.pk %}">{{ strain.strain_id }}</a></td>
             <td class="px-4 py-3">{{ strain.name }}</td>
             <td class="px-4 py-3">{{ strain.organism.name }}</td>
@@ -73,7 +98,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td class="px-4 py-4 text-slate-400" colspan="5">No active strains found.</td>
+            <td class="px-4 py-4 text-slate-400" colspan="6">No active strains found.</td>
           </tr>
         {% endfor %}
       </tbody>
@@ -94,4 +119,34 @@
     </div>
   {% endif %}
 </div>
+
+{% if can_bulk_edit %}
+<script>
+  const selectAll = document.getElementById('select-all');
+  const checkboxes = Array.from(document.querySelectorAll('.strain-checkbox'));
+  const selectionCount = document.getElementById('selection-count');
+
+  function refreshSelectionCount() {
+    const count = checkboxes.filter((checkbox) => checkbox.checked).length;
+    selectionCount.textContent = String(count);
+    if (selectAll) {
+      selectAll.checked = checkboxes.length > 0 && count === checkboxes.length;
+      selectAll.indeterminate = count > 0 && count < checkboxes.length;
+    }
+  }
+
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      checkboxes.forEach((checkbox) => {
+        checkbox.checked = selectAll.checked;
+      });
+      refreshSelectionCount();
+    });
+  }
+
+  checkboxes.forEach((checkbox) => {
+    checkbox.addEventListener('change', refreshSelectionCount);
+  });
+</script>
+{% endif %}
 {% endblock %}

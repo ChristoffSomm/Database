@@ -39,7 +39,7 @@ class SavedViewForm(forms.ModelForm):
 class StrainForm(forms.ModelForm):
     class Meta:
         model = Strain
-        fields = ['strain_id', 'name', 'organism', 'genotype', 'plasmids', 'location', 'status']
+        fields = ['strain_id', 'name', 'organism', 'genotype', 'plasmids', 'selective_marker', 'comments', 'location', 'status']
         widgets = {
             'genotype': forms.Textarea(attrs={'rows': 4}),
         }
@@ -189,3 +189,101 @@ class StrainForm(forms.ModelForm):
                 custom_value.value_choice = submitted_value
 
             custom_value.save()
+
+
+class BulkEditStrainsForm(forms.Form):
+    organism = forms.ModelChoiceField(queryset=Organism.objects.none(), required=False)
+    location = forms.ModelChoiceField(queryset=Location.objects.none(), required=False)
+    genotype = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
+    plasmids = forms.ModelMultipleChoiceField(queryset=Plasmid.objects.none(), required=False)
+    selective_marker = forms.CharField(required=False)
+    comments = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
+
+    def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop('request', None)
+        super().__init__(*args, **kwargs)
+        self.custom_field_definitions = list(get_custom_field_definitions(self._get_current_database()))
+
+        current_database = self._get_current_database()
+        if current_database:
+            self.fields['organism'].queryset = Organism.objects.filter(research_database=current_database).order_by('name')
+            self.fields['location'].queryset = Location.objects.filter(research_database=current_database).order_by(
+                'building', 'room', 'freezer', 'box', 'position'
+            )
+            self.fields['plasmids'].queryset = Plasmid.objects.filter(research_database=current_database).order_by('name')
+
+        self._add_dynamic_custom_fields()
+
+    def _get_current_database(self):
+        if not self.request:
+            return None
+        return getattr(self.request, 'active_database', None) or get_active_database(self.request)
+
+    def _custom_field_name(self, definition_id):
+        return f'bulk_custom_field_{definition_id}'
+
+    def _add_dynamic_custom_fields(self):
+        for definition in self.custom_field_definitions:
+            field_name = self._custom_field_name(definition.id)
+            if definition.field_type == CustomFieldDefinition.FieldType.TEXT:
+                self.fields[field_name] = forms.CharField(required=False, label=definition.name)
+            elif definition.field_type == CustomFieldDefinition.FieldType.NUMBER:
+                self.fields[field_name] = forms.FloatField(required=False, label=definition.name)
+            elif definition.field_type == CustomFieldDefinition.FieldType.DATE:
+                self.fields[field_name] = forms.DateField(required=False, label=definition.name, widget=forms.DateInput(attrs={'type': 'date'}))
+            elif definition.field_type == CustomFieldDefinition.FieldType.BOOLEAN:
+                self.fields[field_name] = forms.TypedChoiceField(
+                    required=False,
+                    label=definition.name,
+                    choices=[('', 'No change'), ('true', 'Yes'), ('false', 'No')],
+                    coerce=lambda value: {'true': True, 'false': False}.get(value),
+                )
+            elif definition.field_type == CustomFieldDefinition.FieldType.CHOICE:
+                choices = [('', 'No change')] + [(choice, choice) for choice in definition.parsed_choices()]
+                self.fields[field_name] = forms.ChoiceField(required=False, label=definition.name, choices=choices)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        current_database = self._get_current_database()
+        if current_database is None:
+            raise forms.ValidationError('No active research database selected.')
+
+        for field_name in ('organism', 'location'):
+            instance = cleaned_data.get(field_name)
+            if instance and instance.research_database_id != current_database.id:
+                self.add_error(field_name, 'Selected item does not belong to the current database.')
+
+        plasmids = cleaned_data.get('plasmids')
+        if plasmids is not None:
+            invalid_plasmids = [plasmid for plasmid in plasmids if plasmid.research_database_id != current_database.id]
+            if invalid_plasmids:
+                self.add_error('plasmids', 'One or more selected plasmids are not in the current database.')
+
+        return cleaned_data
+
+    def get_updated_model_fields(self):
+        updated_fields = {}
+        for field_name in ('organism', 'location', 'selective_marker', 'comments'):
+            value = self.cleaned_data.get(field_name)
+            if value not in (None, ''):
+                updated_fields[field_name] = value
+
+        genotype = self.cleaned_data.get('genotype')
+        if genotype:
+            updated_fields['genotype'] = genotype.strip()
+
+        plasmids = self.cleaned_data.get('plasmids')
+        if plasmids:
+            updated_fields['plasmids'] = list(plasmids)
+
+        return updated_fields
+
+    def get_updated_custom_fields(self):
+        updates = {}
+        for definition in self.custom_field_definitions:
+            field_name = self._custom_field_name(definition.id)
+            value = self.cleaned_data.get(field_name)
+            if value in (None, ''):
+                continue
+            updates[definition] = value
+        return updates
