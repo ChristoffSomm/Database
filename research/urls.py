@@ -1,14 +1,16 @@
 from django.urls import path
 
 from .views import (
+    ActivityFeedView,
     CustomFieldDefinitionCreateView,
     CustomFieldDefinitionDeleteView,
     CustomFieldDefinitionListView,
     CustomFieldDefinitionUpdateView,
-    ActivityFeedView,
     DashboardView,
-    DatabaseMembershipListView,
+    DatabaseMembersView,
+    DatabaseMembershipRemoveView,
     DatabaseMembershipUpdateRoleView,
+    DatabaseTransferOwnershipView,
     FileDetailView,
     LocationDetailView,
     OrganismDetailView,
@@ -27,11 +29,21 @@ urlpatterns = [
     path('databases/select/', SelectDatabaseView.as_view(), name='database-select'),
     path('databases/switch/', SwitchDatabaseView.as_view(), name='database-switch'),
     path('databases/switch/<int:database_id>/', SwitchDatabaseView.as_view(), name='database-switch-id'),
-    path('databases/memberships/', DatabaseMembershipListView.as_view(), name='membership-list'),
+    path('databases/memberships/', DatabaseMembersView.as_view(), name='membership-list'),
     path(
         'databases/memberships/<int:membership_id>/role/',
         DatabaseMembershipUpdateRoleView.as_view(),
         name='membership-update-role',
+    ),
+    path(
+        'databases/memberships/<int:membership_id>/remove/',
+        DatabaseMembershipRemoveView.as_view(),
+        name='membership-remove',
+    ),
+    path(
+        'databases/memberships/<int:membership_id>/transfer-ownership/',
+        DatabaseTransferOwnershipView.as_view(),
+        name='membership-transfer-ownership',
     ),
     path('custom-fields/', CustomFieldDefinitionListView.as_view(), name='custom-field-definition-list'),
     path('custom-fields/create/', CustomFieldDefinitionCreateView.as_view(), name='custom-field-definition-create'),

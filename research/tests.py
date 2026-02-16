@@ -16,8 +16,16 @@ class DatabaseIsolationTests(TestCase):
         self.db_a = ResearchDatabase.objects.create(name='DB-A', created_by=self.user)
         self.db_b = ResearchDatabase.objects.create(name='DB-B', created_by=self.user)
 
-        DatabaseMembership.objects.create(user=self.user, research_database=self.db_a, role=DatabaseMembership.Role.ADMIN)
-        DatabaseMembership.objects.create(user=self.user, research_database=self.db_b, role=DatabaseMembership.Role.VIEWER)
+        DatabaseMembership.objects.update_or_create(
+            user=self.user,
+            research_database=self.db_a,
+            defaults={'role': DatabaseMembership.Role.ADMIN},
+        )
+        DatabaseMembership.objects.update_or_create(
+            user=self.user,
+            research_database=self.db_b,
+            defaults={'role': DatabaseMembership.Role.VIEWER},
+        )
 
         organism_a = Organism.objects.create(research_database=self.db_a, name='E. coli')
         location_a = Location.objects.create(
@@ -76,7 +84,6 @@ class CurrentDatabaseMiddlewareTests(TestCase):
         self.database = ResearchDatabase.objects.create(name='DB-1', created_by=self.user)
 
     def test_redirects_to_database_selection_when_unset(self):
-        DatabaseMembership.objects.create(user=self.user, research_database=self.database, role=DatabaseMembership.Role.VIEWER)
         self.client.force_login(self.user)
 
         response = self.client.get(reverse('dashboard'))
@@ -87,25 +94,26 @@ class CurrentDatabaseMiddlewareTests(TestCase):
 class RolePermissionTests(TestCase):
     def setUp(self):
         self.client = Client()
+        self.owner_user = User.objects.create_user(username='owner-user', password='pass123')
         self.admin_user = User.objects.create_user(username='admin-user', password='pass123')
         self.editor_user = User.objects.create_user(username='editor-user', password='pass123')
         self.viewer_user = User.objects.create_user(username='viewer-user', password='pass123')
-        self.database = ResearchDatabase.objects.create(name='DB-2', created_by=self.admin_user)
+        self.database = ResearchDatabase.objects.create(name='DB-2', created_by=self.owner_user)
 
-        DatabaseMembership.objects.create(
+        DatabaseMembership.objects.update_or_create(
             user=self.admin_user,
             research_database=self.database,
-            role=DatabaseMembership.Role.ADMIN,
+            defaults={'role': DatabaseMembership.Role.ADMIN},
         )
-        DatabaseMembership.objects.create(
+        DatabaseMembership.objects.update_or_create(
             user=self.editor_user,
             research_database=self.database,
-            role=DatabaseMembership.Role.EDITOR,
+            defaults={'role': DatabaseMembership.Role.EDITOR},
         )
-        DatabaseMembership.objects.create(
+        DatabaseMembership.objects.update_or_create(
             user=self.viewer_user,
             research_database=self.database,
-            role=DatabaseMembership.Role.VIEWER,
+            defaults={'role': DatabaseMembership.Role.VIEWER},
         )
 
     def _set_active_database(self):
@@ -113,11 +121,16 @@ class RolePermissionTests(TestCase):
         session[SESSION_DATABASE_KEY] = self.database.id
         session.save()
 
-    def test_only_admin_can_manage_memberships(self):
+    def test_admin_and_owner_can_manage_memberships(self):
+        self.client.force_login(self.owner_user)
+        self._set_active_database()
+        self.assertEqual(self.client.get(reverse('membership-list')).status_code, 200)
+
         self.client.force_login(self.admin_user)
         self._set_active_database()
         self.assertEqual(self.client.get(reverse('membership-list')).status_code, 200)
 
+    def test_editor_and_viewer_cannot_manage_memberships(self):
         self.client.force_login(self.editor_user)
         self._set_active_database()
         self.assertEqual(self.client.get(reverse('membership-list')).status_code, 403)
@@ -126,6 +139,11 @@ class RolePermissionTests(TestCase):
         self._set_active_database()
         self.assertEqual(self.client.get(reverse('membership-list')).status_code, 403)
 
+    def test_viewer_cannot_create_strains(self):
+        self.client.force_login(self.viewer_user)
+        self._set_active_database()
+        self.assertEqual(self.client.get(reverse('strain-create')).status_code, 403)
+
 
 @override_settings(SECURE_SSL_REDIRECT=False)
 class DatabaseSelectorTests(TestCase):
@@ -133,10 +151,34 @@ class DatabaseSelectorTests(TestCase):
         self.client = Client()
         self.user = User.objects.create_user(username='selector-user', password='pass123')
         self.database = ResearchDatabase.objects.create(name='DB-Selector', created_by=self.user)
-        DatabaseMembership.objects.create(user=self.user, research_database=self.database, role=DatabaseMembership.Role.ADMIN)
 
     def test_switch_database_sets_session_value(self):
         self.client.force_login(self.user)
         response = self.client.post(reverse('database-switch'), {'database_id': self.database.id})
         self.assertRedirects(response, reverse('dashboard'))
         self.assertEqual(self.client.session.get(SESSION_DATABASE_KEY), self.database.id)
+
+
+class ResearchDatabaseMembershipHelperTests(TestCase):
+    def test_creator_becomes_owner_and_permission_helpers(self):
+        owner = User.objects.create_user(username='db-owner', password='pass123')
+        viewer = User.objects.create_user(username='db-viewer', password='pass123')
+        database = ResearchDatabase.objects.create(name='AutoOwner', created_by=owner)
+
+        DatabaseMembership.objects.create(
+            user=viewer,
+            research_database=database,
+            role=DatabaseMembership.Role.VIEWER,
+        )
+
+        self.assertEqual(database.get_user_role(owner), DatabaseMembership.Role.OWNER)
+        self.assertTrue(database.is_owner(owner))
+        self.assertTrue(database.can_manage_members(owner))
+        self.assertTrue(database.can_edit(owner))
+        self.assertTrue(database.can_view(owner))
+
+        self.assertEqual(database.get_user_role(viewer), DatabaseMembership.Role.VIEWER)
+        self.assertFalse(database.is_owner(viewer))
+        self.assertFalse(database.can_manage_members(viewer))
+        self.assertFalse(database.can_edit(viewer))
+        self.assertTrue(database.can_view(viewer))

@@ -1,14 +1,39 @@
 {% extends 'base.html' %}
-{% block title %}Memberships | Strain DB{% endblock %}
-{% block header_title %}Database Memberships{% endblock %}
+{% block title %}Members | Strain DB{% endblock %}
+{% block header_title %}Manage Members{% endblock %}
 
 {% block content %}
-<h2 class="mb-4 text-2xl font-bold">Memberships{% if current_database %} — {{ current_database.name }}{% endif %}</h2>
-<div class="overflow-hidden rounded border border-slate-700 bg-slate-800">
-  <table class="w-full text-left">
-    <thead class="bg-slate-900">
+<section class="mb-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+  <div>
+    <h2 class="text-2xl font-bold text-slate-100">Database Members{% if current_database %} — {{ current_database.name }}{% endif %}</h2>
+    <p class="text-sm text-slate-400">Assign database-specific roles for access control.</p>
+  </div>
+  {% if is_owner %}
+    <p class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">Owner controls enabled</p>
+  {% endif %}
+</section>
+
+<section class="mb-6 rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Add or update member</h3>
+  <form method="post" action="{% url 'membership-list' %}" class="mt-4 grid gap-3 md:grid-cols-4">
+    {% csrf_token %}
+    <input name="username" type="text" placeholder="Username" class="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 md:col-span-2" required>
+    <select name="role" class="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100">
+      {% for value, label in role_choices %}
+        {% if value != 'owner' %}
+          <option value="{{ value }}">{{ label }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <button type="submit" class="rounded bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:bg-green-300">Save Member</button>
+  </form>
+</section>
+
+<div class="overflow-hidden rounded-xl border border-slate-700 bg-card-bg shadow-lg shadow-black/20">
+  <table class="w-full text-left text-sm">
+    <thead class="bg-slate-900/70 text-slate-300">
       <tr>
-        <th class="px-4 py-3">User</th>
+        <th class="px-4 py-3">Username</th>
         <th class="px-4 py-3">Role</th>
         <th class="px-4 py-3">Actions</th>
       </tr>
@@ -16,22 +41,52 @@
     <tbody>
       {% for membership in memberships %}
       <tr class="border-t border-slate-700">
-        <td class="px-4 py-3">{{ membership.user.username }}</td>
-        <td class="px-4 py-3">{{ membership.get_role_display }}</td>
+        <td class="px-4 py-3 font-medium text-slate-200">{{ membership.user.username }}</td>
+        <td class="px-4 py-3 text-slate-200">{{ membership.get_role_display }}</td>
         <td class="px-4 py-3">
-          <form method="post" action="{% url 'membership-update-role' membership.id %}" class="flex gap-2">
-            {% csrf_token %}
-            <select name="role" class="rounded border border-slate-700 bg-slate-900 px-2 py-1">
-              {% for value, label in membership.Role.choices %}
-                <option value="{{ value }}" {% if membership.role == value %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit" class="rounded bg-primary px-3 py-1 font-semibold text-black">Update</button>
-          </form>
+          <div class="flex flex-wrap items-center gap-2">
+            <form method="post" action="{% url 'membership-update-role' membership.id %}" class="flex items-center gap-2">
+              {% csrf_token %}
+              <select name="role" class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100">
+                {% for value, label in role_choices %}
+                  {% if value == 'owner' %}
+                    {% if is_owner %}
+                      <option value="{{ value }}" {% if membership.role == value %}selected{% endif %}>{{ label }}</option>
+                    {% endif %}
+                  {% else %}
+                    <option value="{{ value }}" {% if membership.role == value %}selected{% endif %}>{{ label }}</option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+              <button type="submit" class="rounded bg-primary px-3 py-1 font-semibold text-black">Update</button>
+            </form>
+
+            {% if membership.role != 'owner' %}
+            <form method="post" action="{% url 'membership-remove' membership.id %}">
+              {% csrf_token %}
+              <button type="submit" class="rounded border border-red-500/60 bg-red-500/10 px-3 py-1 font-semibold text-red-300 hover:bg-red-500/20">Remove</button>
+            </form>
+            {% endif %}
+
+            {% if is_owner and membership.role != 'owner' %}
+            <form method="post" action="{% url 'membership-transfer-ownership' membership.id %}">
+              {% csrf_token %}
+              <button type="submit" class="rounded border border-primary/60 bg-primary/10 px-3 py-1 font-semibold text-primary hover:bg-primary/20">Make Owner</button>
+            </form>
+            {% endif %}
+          </div>
         </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="3" class="px-4 py-5 text-slate-400">No members found for this database.</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if not is_owner %}
+  <p class="mt-4 text-xs text-slate-500">Only owners can transfer ownership or perform database-destructive actions such as deleting the database.</p>
+{% endif %}
 {% endblock %}
