@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Strains | Strain DB{% endblock %}
+{% block content %}
+<h2 class="text-2xl font-bold mb-6">Strain List</h2>
+<div class="bg-slate-800 rounded border border-slate-700 overflow-hidden">
+  <table class="w-full text-left">
+    <thead class="bg-slate-900"><tr><th class="px-4 py-3">Strain ID</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Organism</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody>
+      {% for strain in strains %}
+      <tr class="border-t border-slate-700 hover:bg-slate-700/30">
+        <td class="px-4 py-2"><a class="text-[#00c853]" href="{% url 'strain-detail' strain_id=strain.strain_id %}">{{ strain.strain_id }}</a></td>
+        <td class="px-4 py-2">{{ strain.name }}</td>
+        <td class="px-4 py-2">{{ strain.organism.name }}</td>
+        <td class="px-4 py-2">{{ strain.get_status_display }}</td>
+      </tr>
+      {% empty %}
+      <tr><td class="px-4 py-3" colspan="4">No strains found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
