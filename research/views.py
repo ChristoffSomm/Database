@@ -5,13 +5,21 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Count, Q
-from django.http import HttpResponseBadRequest, HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from .forms import BulkEditStrainsForm, CSVUploadForm, CustomFieldDefinitionForm, GlobalSearchForm, SavedViewForm, StrainForm
+from .forms import (
+    BulkEditStrainsForm,
+    CSVUploadForm,
+    CustomFieldDefinitionForm,
+    GlobalSearchForm,
+    SavedViewForm,
+    StrainAttachmentUploadForm,
+    StrainForm,
+)
 from .filtering import apply_filters
 from .helpers import SESSION_DATABASE_KEY, get_active_database, get_custom_field_definitions, get_custom_field_values
 from .import_utils import (
@@ -34,6 +42,7 @@ from .models import (
     ResearchDatabase,
     SavedView,
     Strain,
+    StrainAttachment,
     StrainVersion,
 )
 from .permissions import DatabasePermissionMixin
@@ -62,6 +71,11 @@ class EditorRequiredMixin(DatabasePermissionMixin):
 
 class MemberManagerRequiredMixin(DatabasePermissionMixin):
     required_permission = 'manage_members'
+
+
+def _can_delete_attachments(database, user):
+    role = database.get_user_role(user)
+    return role in {DatabaseMembership.Role.OWNER, DatabaseMembership.Role.ADMIN}
 
 
 class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
@@ -810,7 +824,7 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
             .get_queryset()
             .filter(is_active=True)
             .select_related('organism', 'location', 'created_by')
-            .prefetch_related('plasmids', 'files')
+            .prefetch_related('plasmids', 'files', 'attachments__uploaded_by')
         )
 
     def get_context_data(self, **kwargs):
@@ -821,8 +835,98 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
             object_id=str(strain.pk),
             research_database=strain.research_database,
         )[:20]
+        active_database = self.get_active_database()
         context['custom_field_values'] = get_custom_field_values(strain)
+        context['attachment_upload_form'] = StrainAttachmentUploadForm()
+        context['can_upload_attachments'] = active_database.can_edit(self.request.user)
+        context['can_delete_attachments'] = _can_delete_attachments(active_database, self.request.user)
+        context['allowed_text_extensions'] = ['csv', 'txt', 'tsv']
         return context
+
+
+class UploadStrainAttachmentView(LoginRequiredMixin, EditorRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        strain = get_object_or_404(Strain, pk=kwargs['pk'], research_database=active_database, is_active=True)
+        form = StrainAttachmentUploadForm(request.POST, request.FILES)
+
+        if not form.is_valid():
+            messages.error(request, 'Please select at least one valid file to upload.')
+            return HttpResponseRedirect(reverse('strain-detail', kwargs={'pk': strain.pk}))
+
+        uploaded_files = form.cleaned_data['files']
+        for uploaded_file in uploaded_files:
+            attachment = StrainAttachment.objects.create(
+                strain=strain,
+                uploaded_by=request.user,
+                file=uploaded_file,
+            )
+            AuditLog.objects.create(
+                user=request.user,
+                action='upload_attachment',
+                record_type='StrainAttachment',
+                record_id=str(attachment.pk),
+                metadata={
+                    'strain_id': strain.strain_id,
+                    'filename': attachment.file_name,
+                    'size': attachment.file_size,
+                },
+            )
+
+        messages.success(request, f'Uploaded {len(uploaded_files)} attachment(s) for strain {strain.strain_id}.')
+        return HttpResponseRedirect(reverse('strain-detail', kwargs={'pk': strain.pk}))
+
+
+class DeleteStrainAttachmentView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        if not _can_delete_attachments(active_database, request.user):
+            return HttpResponseForbidden('Only database owner/admin can delete attachments.')
+
+        attachment = get_object_or_404(
+            StrainAttachment.objects.select_related('strain'),
+            pk=kwargs['attachment_pk'],
+            strain__pk=kwargs['pk'],
+            strain__research_database=active_database,
+            strain__is_active=True,
+        )
+        strain = attachment.strain
+        filename = attachment.file_name
+        attachment.file.delete(save=False)
+        attachment.delete()
+
+        AuditLog.objects.create(
+            user=request.user,
+            action='delete_attachment',
+            record_type='StrainAttachment',
+            record_id=str(kwargs['attachment_pk']),
+            metadata={
+                'strain_id': strain.strain_id,
+                'filename': filename,
+            },
+        )
+
+        messages.success(request, f'Deleted attachment {filename}.')
+        return HttpResponseRedirect(reverse('strain-detail', kwargs={'pk': strain.pk}))
+
+
+class StrainAttachmentDownloadView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def get(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        attachment = get_object_or_404(
+            StrainAttachment.objects.select_related('strain'),
+            pk=kwargs['attachment_pk'],
+            strain__pk=kwargs['pk'],
+            strain__research_database=active_database,
+            strain__is_active=True,
+        )
+        if not attachment.file:
+            raise Http404('Attachment file is missing.')
+        return FileResponse(attachment.file.open('rb'), as_attachment=True, filename=attachment.file_name)
 
 
 class StrainHistoryView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, DetailView):

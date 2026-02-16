@@ -1,4 +1,6 @@
 from django.contrib.auth import get_user_model
+import os
+
 from django.db import models
 from django.urls import reverse
 
@@ -294,6 +296,40 @@ class SavedView(models.Model):
     def __str__(self):
         visibility = 'Shared' if self.is_shared else 'Private'
         return f'{self.name} ({visibility})'
+
+
+class StrainAttachment(models.Model):
+    strain = models.ForeignKey(Strain, on_delete=models.CASCADE, related_name='attachments')
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='strain_attachments')
+    file = models.FileField(upload_to='strain_attachments/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    file_name = models.CharField(max_length=255)
+    file_size = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['strain', 'uploaded_at']),
+            models.Index(fields=['uploaded_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.strain.strain_id}: {self.file_name}'
+
+    @property
+    def extension(self):
+        _root, extension = os.path.splitext(self.file_name or '')
+        return extension.lower().lstrip('.')
+
+    @property
+    def is_image(self):
+        return self.extension in {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'}
+
+    def save(self, *args, **kwargs):
+        if self.file:
+            self.file_name = os.path.basename(self.file.name)
+            self.file_size = self.file.size or 0
+        super().save(*args, **kwargs)
 
 
 class File(models.Model):

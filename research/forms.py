@@ -8,6 +8,20 @@ class GlobalSearchForm(forms.Form):
     q = forms.CharField(max_length=200, required=False, strip=True)
 
 
+class MultipleFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
+
+
+class MultipleFileField(forms.FileField):
+    def clean(self, data, initial=None):
+        single_file_clean = super().clean
+        if isinstance(data, (list, tuple)):
+            if not data:
+                raise forms.ValidationError('Please choose at least one file to upload.')
+            return [single_file_clean(item, initial) for item in data]
+        return [single_file_clean(data, initial)]
+
+
 class CustomFieldDefinitionForm(forms.ModelForm):
     class Meta:
         model = CustomFieldDefinition
@@ -189,6 +203,14 @@ class StrainForm(forms.ModelForm):
                 custom_value.value_choice = submitted_value
 
             custom_value.save()
+
+
+class StrainAttachmentUploadForm(forms.Form):
+    files = MultipleFileField(
+        label='Select files',
+        widget=MultipleFileInput(attrs={'multiple': True}),
+        required=True,
+    )
 
 
 class BulkEditStrainsForm(forms.Form):
