@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Bulk Edit Strains | Strain DB{% endblock %}
+{% block header_title %}Bulk Edit Strains{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-4xl space-y-6">
+  <div class="rounded-lg border border-slate-700 bg-slate-800 p-5">
+    <h2 class="text-xl font-semibold text-white">Bulk Edit</h2>
+    <p class="mt-2 text-sm text-slate-300">{{ selected_count }} strains selected</p>
+  </div>
+
+  <form method="post" class="rounded-lg border border-slate-700 bg-slate-800 p-5">
+    {% csrf_token %}
+    <input type="hidden" name="bulk_action" value="edit">
+    <input type="hidden" name="apply_bulk_edit" value="1">
+    {% for strain_id in selected_ids %}
+      <input type="hidden" name="strain_ids" value="{{ strain_id }}">
+    {% endfor %}
+
+    <div class="grid gap-4 md:grid-cols-2">
+      {% for field in form %}
+        <div>
+          <label for="{{ field.id_for_label }}" class="mb-1 block text-xs uppercase tracking-wide text-slate-400">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}<p class="mt-1 text-xs text-rose-400">{{ field.errors|join:', ' }}</p>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    {% if form.non_field_errors %}
+      <div class="mt-3 text-sm text-rose-400">{{ form.non_field_errors|join:', ' }}</div>
+    {% endif %}
+
+    <div class="mt-5 flex items-center gap-3">
+      <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Apply bulk update</button>
+      <a href="{% url 'strain-list' %}" class="rounded-md border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

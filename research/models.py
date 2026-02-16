@@ -136,12 +136,15 @@ class Strain(models.Model):
     name = models.CharField(max_length=200, db_index=True)
     organism = models.ForeignKey(Organism, on_delete=models.PROTECT, related_name='strains')
     genotype = models.TextField()
+    selective_marker = models.CharField(max_length=255, blank=True)
+    comments = models.TextField(blank=True)
     location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name='strains')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT, db_index=True)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_strains')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True, db_index=True)
+    is_archived = models.BooleanField(default=False, db_index=True)
     plasmids = models.ManyToManyField(Plasmid, through='StrainPlasmid', related_name='strains', blank=True)
 
     class Meta:
