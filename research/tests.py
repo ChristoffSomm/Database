@@ -3,7 +3,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from .helpers import SESSION_DATABASE_KEY
-from .models import DatabaseMembership, Location, Organism, ResearchDatabase, Strain
+from .models import AuditLog, DatabaseMembership, Location, Organism, ResearchDatabase, Strain, StrainAttachment
 
 User = get_user_model()
 
@@ -207,7 +207,11 @@ class BulkActionsTests(TestCase):
         self.viewer = User.objects.create_user(username='bulk-viewer', password='pass123')
         self.database = ResearchDatabase.objects.create(name='DB-Bulk', created_by=self.owner)
 
-        DatabaseMembership.objects.create(user=self.owner, research_database=self.database, role=DatabaseMembership.Role.OWNER)
+        DatabaseMembership.objects.update_or_create(
+            user=self.owner,
+            research_database=self.database,
+            defaults={'role': DatabaseMembership.Role.OWNER},
+        )
         DatabaseMembership.objects.create(user=self.editor, research_database=self.database, role=DatabaseMembership.Role.EDITOR)
         DatabaseMembership.objects.create(user=self.viewer, research_database=self.database, role=DatabaseMembership.Role.VIEWER)
 
@@ -365,3 +369,131 @@ class CSVImportTests(TestCase):
                 metadata__filename='strains.csv',
             ).exists()
         )
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class StrainAttachmentViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.owner = User.objects.create_user(username='attach-owner', password='pass123')
+        self.admin = User.objects.create_user(username='attach-admin', password='pass123')
+        self.editor = User.objects.create_user(username='attach-editor', password='pass123')
+        self.viewer = User.objects.create_user(username='attach-viewer', password='pass123')
+        self.database = ResearchDatabase.objects.create(name='ATT-DB', created_by=self.owner)
+
+        DatabaseMembership.objects.update_or_create(
+            user=self.owner,
+            research_database=self.database,
+            defaults={'role': DatabaseMembership.Role.OWNER},
+        )
+        DatabaseMembership.objects.create(user=self.admin, research_database=self.database, role=DatabaseMembership.Role.ADMIN)
+        DatabaseMembership.objects.create(user=self.editor, research_database=self.database, role=DatabaseMembership.Role.EDITOR)
+        DatabaseMembership.objects.create(user=self.viewer, research_database=self.database, role=DatabaseMembership.Role.VIEWER)
+
+        organism = Organism.objects.create(research_database=self.database, name='E. coli')
+        location = Location.objects.create(
+            research_database=self.database,
+            building='B1',
+            room='R1',
+            freezer='F1',
+            box='BX1',
+            position='P1',
+        )
+        self.strain = Strain.objects.create(
+            research_database=self.database,
+            strain_id='ATT-001',
+            name='Attachment Test',
+            organism=organism,
+            genotype='WT',
+            location=location,
+            created_by=self.owner,
+        )
+
+    def _set_active_database(self):
+        session = self.client.session
+        session[SESSION_DATABASE_KEY] = self.database.id
+        session.save()
+
+    def test_editor_can_upload_multiple_attachments(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.editor)
+        self._set_active_database()
+        response = self.client.post(
+            reverse('strain-attachment-upload', kwargs={'pk': self.strain.pk}),
+            {
+                'files': [
+                    SimpleUploadedFile('protocol.txt', b'abc', content_type='text/plain'),
+                    SimpleUploadedFile('gel.png', b'png-bytes', content_type='image/png'),
+                ]
+            },
+        )
+
+        self.assertRedirects(response, reverse('strain-detail', kwargs={'pk': self.strain.pk}))
+        self.assertEqual(StrainAttachment.objects.filter(strain=self.strain).count(), 2)
+        self.assertTrue(
+            AuditLog.objects.filter(action='upload_attachment', record_type='StrainAttachment', metadata__strain_id='ATT-001').exists()
+        )
+
+    def test_viewer_cannot_upload_attachments(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.viewer)
+        self._set_active_database()
+        response = self.client.post(
+            reverse('strain-attachment-upload', kwargs={'pk': self.strain.pk}),
+            {'files': [SimpleUploadedFile('notes.txt', b'abc', content_type='text/plain')]},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_delete_but_editor_cannot(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        attachment = StrainAttachment.objects.create(
+            strain=self.strain,
+            uploaded_by=self.owner,
+            file=SimpleUploadedFile('to-delete.txt', b'data', content_type='text/plain'),
+        )
+
+        self.client.force_login(self.editor)
+        self._set_active_database()
+        denied = self.client.post(
+            reverse('strain-attachment-delete', kwargs={'pk': self.strain.pk, 'attachment_pk': attachment.pk})
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        self.client.force_login(self.admin)
+        self._set_active_database()
+        allowed = self.client.post(
+            reverse('strain-attachment-delete', kwargs={'pk': self.strain.pk, 'attachment_pk': attachment.pk})
+        )
+        self.assertRedirects(allowed, reverse('strain-detail', kwargs={'pk': self.strain.pk}))
+        self.assertFalse(StrainAttachment.objects.filter(pk=attachment.pk).exists())
+        self.assertTrue(AuditLog.objects.filter(action='delete_attachment', record_type='StrainAttachment').exists())
+
+    def test_download_requires_matching_database(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        attachment = StrainAttachment.objects.create(
+            strain=self.strain,
+            uploaded_by=self.owner,
+            file=SimpleUploadedFile('readme.txt', b'hello', content_type='text/plain'),
+        )
+
+        self.client.force_login(self.viewer)
+        self._set_active_database()
+        response = self.client.get(
+            reverse('strain-attachment-download', kwargs={'pk': self.strain.pk, 'attachment_pk': attachment.pk})
+        )
+        self.assertEqual(response.status_code, 200)
+
+        other_db = ResearchDatabase.objects.create(name='Other DB', created_by=self.owner)
+        DatabaseMembership.objects.create(user=self.viewer, research_database=other_db, role=DatabaseMembership.Role.VIEWER)
+        session = self.client.session
+        session[SESSION_DATABASE_KEY] = other_db.id
+        session.save()
+
+        denied = self.client.get(
+            reverse('strain-attachment-download', kwargs={'pk': self.strain.pk, 'attachment_pk': attachment.pk})
+        )
+        self.assertEqual(denied.status_code, 404)
