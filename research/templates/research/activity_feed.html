@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}Activity Feed | Strain DB{% endblock %}
+{% block header_title %}Activity Feed{% endblock %}
+{% block content %}
+<div class="space-y-6">
+  <div>
+    <h2 class="text-2xl font-bold">Recent Activity</h2>
+    <p class="text-sm text-slate-400">Track create, update, and delete operations across the active research database.</p>
+  </div>
+
+  <form method="get" class="grid gap-3 rounded-lg border border-slate-700 bg-slate-800 p-4 md:grid-cols-3">
+    <select name="user" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
+      <option value="">All users</option>
+      {% for membership in users %}
+        <option value="{{ membership.user_id }}" {% if selected_user == membership.user_id|stringformat:'s' %}selected{% endif %}>{{ membership.user.username }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="model_name" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
+      <option value="">All models</option>
+      {% for name in model_names %}
+        <option value="{{ name }}" {% if selected_model_name == name %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="action" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
+      <option value="">All actions</option>
+      {% for value, label in actions %}
+        <option value="{{ value }}" {% if selected_action == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    <input type="date" name="start_date" value="{{ selected_start_date }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
+    <input type="date" name="end_date" value="{{ selected_end_date }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
+    <button type="submit" class="rounded-md bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600">Apply Filters</button>
+  </form>
+
+  <div class="space-y-4">
+    {% regroup activity_logs by timestamp.date as grouped_logs %}
+    {% for group in grouped_logs %}
+      <section class="rounded-lg border border-slate-700 bg-slate-800">
+        <div class="border-b border-slate-700 px-4 py-3 text-sm font-semibold text-slate-200">{{ group.grouper }}</div>
+        <ul class="divide-y divide-slate-700">
+          {% for log in group.list %}
+            <li class="px-4 py-3">
+              <p class="text-sm text-slate-100">
+                {{ log.summary }}
+              </p>
+              <p class="mt-1 text-xs text-slate-400">
+                {{ log.timestamp|time:'H:i:s' }} · {{ log.model_name }} #{{ log.object_id }} · {{ log.action|title }}
+              </p>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% empty %}
+      <div class="rounded-lg border border-slate-700 bg-slate-800 px-4 py-6 text-sm text-slate-400">No activity found for the selected filters.</div>
+    {% endfor %}
+  </div>
+
+  {% if is_paginated %}
+    <div class="flex items-center justify-between">
+      <span class="text-sm text-slate-400">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      <div class="flex gap-2">
+        {% if page_obj.has_previous %}
+          <a href="?user={{ selected_user }}&model_name={{ selected_model_name }}&action={{ selected_action }}&start_date={{ selected_start_date }}&end_date={{ selected_end_date }}&page={{ page_obj.previous_page_number }}" class="rounded-md border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-700">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a href="?user={{ selected_user }}&model_name={{ selected_model_name }}&action={{ selected_action }}&start_date={{ selected_start_date }}&end_date={{ selected_end_date }}&page={{ page_obj.next_page_number }}" class="rounded-md border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-700">Next</a>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

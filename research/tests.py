@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from .helpers import SESSION_DATABASE_KEY
@@ -8,6 +8,7 @@ from .models import DatabaseMembership, Location, Organism, ResearchDatabase, St
 User = get_user_model()
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class DatabaseIsolationTests(TestCase):
     def setUp(self):
         self.client = Client()
@@ -67,6 +68,7 @@ class DatabaseIsolationTests(TestCase):
         self.assertNotContains(response, self.strain_b.strain_id)
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class CurrentDatabaseMiddlewareTests(TestCase):
     def setUp(self):
         self.client = Client()
@@ -81,6 +83,7 @@ class CurrentDatabaseMiddlewareTests(TestCase):
         self.assertRedirects(response, reverse('database-select'))
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class RolePermissionTests(TestCase):
     def setUp(self):
         self.client = Client()
@@ -124,6 +127,7 @@ class RolePermissionTests(TestCase):
         self.assertEqual(self.client.get(reverse('membership-list')).status_code, 403)
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class DatabaseSelectorTests(TestCase):
     def setUp(self):
         self.client = Client()

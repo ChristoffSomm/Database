@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .helpers import SESSION_DATABASE_KEY
 from .models import (
+    ActivityLog,
     AuditLog,
     CustomFieldDefinition,
     CustomFieldValue,
@@ -139,6 +140,14 @@ class FileAdmin(DatabaseScopedAdmin):
     list_display = ('strain', 'research_database', 'file', 'uploaded_by', 'uploaded_at')
     search_fields = ('strain__strain_id', 'file')
     list_filter = ('research_database', 'uploaded_at')
+
+
+@admin.register(ActivityLog)
+class ActivityLogAdmin(admin.ModelAdmin):
+    list_display = ('timestamp', 'research_database', 'user', 'model_name', 'action', 'object_id')
+    list_filter = ('model_name', 'action', 'user', 'research_database', 'timestamp')
+    search_fields = ('summary', 'model_name')
+    readonly_fields = ('timestamp', 'research_database', 'user', 'model_name', 'object_id', 'action', 'changes', 'summary')
 
 
 @admin.register(AuditLog)
