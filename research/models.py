@@ -240,6 +240,28 @@ class StrainPlasmid(models.Model):
         return f'{self.strain.strain_id} -> {self.plasmid.name}'
 
 
+class SavedView(models.Model):
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='saved_views')
+    name = models.CharField(max_length=255)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_views')
+    filter_definition = models.JSONField()
+    is_shared = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name', '-created_at']
+        unique_together = ('research_database', 'name', 'created_by')
+        indexes = [
+            models.Index(fields=['research_database', 'is_shared']),
+            models.Index(fields=['research_database', 'created_by']),
+            models.Index(fields=['research_database', 'created_at']),
+        ]
+
+    def __str__(self):
+        visibility = 'Shared' if self.is_shared else 'Private'
+        return f'{self.name} ({visibility})'
+
+
 class File(models.Model):
     research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='files')
     strain = models.ForeignKey(Strain, on_delete=models.CASCADE, related_name='files')
