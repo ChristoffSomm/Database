@@ -1,12 +1,14 @@
 module.exports = {
   content: [
     './research/templates/**/*.html',
-    './research/**/*.py',
   ],
   theme: {
     extend: {
       colors: {
         primary: '#00c853',
+        'dark-bg': '#14161c',
+        'main-bg': '#1c1f26',
+        'card-bg': '#242832',
       },
     },
   },
