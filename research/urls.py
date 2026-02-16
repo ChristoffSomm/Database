@@ -4,15 +4,16 @@ from .views import (
     DashboardView,
     DatabaseMembershipListView,
     DatabaseMembershipUpdateRoleView,
-    DatabaseSelectView,
+    SelectDatabaseView,
     StrainDetailView,
     StrainListView,
     SwitchDatabaseView,
 )
 
 urlpatterns = [
-    path('databases/select/', DatabaseSelectView.as_view(), name='database-select'),
+    path('databases/select/', SelectDatabaseView.as_view(), name='database-select'),
     path('databases/switch/', SwitchDatabaseView.as_view(), name='database-switch'),
+    path('databases/switch/<int:database_id>/', SwitchDatabaseView.as_view(), name='database-switch-id'),
     path('databases/memberships/', DatabaseMembershipListView.as_view(), name='membership-list'),
     path(
         'databases/memberships/<int:membership_id>/role/',
