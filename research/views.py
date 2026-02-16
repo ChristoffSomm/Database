@@ -3,13 +3,14 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Q
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from .forms import CustomFieldDefinitionForm, GlobalSearchForm, StrainForm
+from .forms import CustomFieldDefinitionForm, GlobalSearchForm, SavedViewForm, StrainForm
+from .filtering import apply_filters
 from .helpers import SESSION_DATABASE_KEY, get_active_database, get_custom_field_definitions, get_custom_field_values
 from .models import (
     ActivityLog,
@@ -20,6 +21,7 @@ from .models import (
     Organism,
     Plasmid,
     ResearchDatabase,
+    SavedView,
     Strain,
 )
 from .permissions import DatabasePermissionMixin
@@ -69,6 +71,9 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
         context['recent_organisms'] = organisms.annotate(total=Count('strains')).order_by('-total')[:5]
         context['can_edit'] = active_database.can_edit(self.request.user)
         context['can_manage_members'] = active_database.can_manage_members(self.request.user)
+        context['saved_views'] = SavedView.objects.filter(research_database=active_database).filter(
+            Q(is_shared=True) | Q(created_by=self.request.user)
+        ).select_related('created_by').order_by('name')
         return context
 
 
@@ -285,6 +290,100 @@ class CustomFieldDefinitionDeleteView(LoginRequiredMixin, EditorRequiredMixin, D
         return CustomFieldDefinition.objects.filter(research_database=active_database)
 
 
+def _saved_view_queryset_for_user(database, user):
+    return SavedView.objects.filter(research_database=database).filter(Q(is_shared=True) | Q(created_by=user))
+
+
+class CreateSavedViewView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        form = SavedViewForm(request.POST)
+        if not form.is_valid():
+            for errors in form.errors.values():
+                for error in errors:
+                    messages.error(request, error)
+            return HttpResponseRedirect(reverse('dashboard'))
+
+        filter_definition_raw = request.POST.get('filter_definition', '{}')
+        import json
+
+        try:
+            filter_definition = json.loads(filter_definition_raw)
+        except json.JSONDecodeError:
+            return HttpResponseBadRequest('Invalid filter definition.')
+
+        saved_view = form.save(commit=False)
+        saved_view.research_database = active_database
+        saved_view.created_by = request.user
+        saved_view.filter_definition = filter_definition
+        saved_view.save()
+        messages.success(request, f'Saved view "{saved_view.name}" created.')
+        return HttpResponseRedirect(reverse('dashboard'))
+
+
+class UpdateSavedViewView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        saved_view = get_object_or_404(_saved_view_queryset_for_user(active_database, request.user), pk=kwargs['pk'])
+        if saved_view.created_by_id != request.user.id and not active_database.can_manage_members(request.user):
+            return HttpResponseBadRequest('You cannot update this saved view.')
+
+        form = SavedViewForm(request.POST, instance=saved_view)
+        if not form.is_valid():
+            for errors in form.errors.values():
+                for error in errors:
+                    messages.error(request, error)
+            return HttpResponseRedirect(reverse('dashboard'))
+
+        filter_definition_raw = request.POST.get('filter_definition', '{}')
+        import json
+
+        try:
+            filter_definition = json.loads(filter_definition_raw)
+        except json.JSONDecodeError:
+            return HttpResponseBadRequest('Invalid filter definition.')
+
+        updated = form.save(commit=False)
+        updated.filter_definition = filter_definition
+        updated.save()
+        messages.success(request, f'Saved view "{updated.name}" updated.')
+        return HttpResponseRedirect(reverse('dashboard'))
+
+
+class DeleteSavedViewView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        saved_view = get_object_or_404(_saved_view_queryset_for_user(active_database, request.user), pk=kwargs['pk'])
+
+        can_delete = saved_view.created_by_id == request.user.id
+        if saved_view.is_shared:
+            can_delete = can_delete or active_database.can_manage_members(request.user)
+
+        if not can_delete:
+            return HttpResponseBadRequest('You do not have permission to delete this view.')
+
+        view_name = saved_view.name
+        saved_view.delete()
+        messages.success(request, f'Saved view "{view_name}" deleted.')
+        return HttpResponseRedirect(reverse('dashboard'))
+
+
+class ApplySavedViewView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def get(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        saved_view = get_object_or_404(_saved_view_queryset_for_user(active_database, request.user), pk=kwargs['pk'])
+        return redirect(f"{reverse('strain-list')}?saved_view={saved_view.pk}")
+
+
+
 class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, ListView):
     model = Strain
     template_name = 'research/strain_list.html'
@@ -352,6 +451,12 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
                     custom_field_values__value_choice=raw_value,
                 )
 
+        saved_view_id = self.request.GET.get('saved_view', '').strip()
+        if saved_view_id:
+            saved_view = _saved_view_queryset_for_user(self.get_active_database(), self.request.user).filter(pk=saved_view_id).first()
+            if saved_view:
+                queryset = apply_filters(queryset, saved_view.filter_definition)
+
         return queryset.distinct()
 
     def get_context_data(self, **kwargs):
@@ -373,6 +478,8 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
             }
             for definition in definitions
         ]
+        context['saved_views'] = _saved_view_queryset_for_user(active_database, self.request.user).select_related('created_by').order_by('name')
+        context['active_saved_view'] = self.request.GET.get('saved_view', '').strip()
         return context
 
 

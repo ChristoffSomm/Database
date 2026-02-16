@@ -4,58 +4,175 @@
 {% block header_title %}Research Dashboard{% endblock %}
 
 {% block content %}
-<section class="mb-6">
-  <h2 class="text-2xl font-bold text-slate-100">Overview{% if current_database %} — {{ current_database.name }}{% endif %}</h2>
-  <p class="mt-2 text-sm text-slate-400">Database-scoped status and recent activity.</p>
+<section class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h2 class="text-2xl font-bold text-slate-100">Overview{% if current_database %} — {{ current_database.name }}{% endif %}</h2>
+    <p class="mt-2 text-sm text-slate-400">Database-scoped status and recent activity.</p>
+  </div>
+  <button id="openFilterBuilder" type="button" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:bg-green-300">Build Saved View</button>
 </section>
 
-<section class="mt-6 flex flex-wrap gap-3">
-  {% if can_edit %}
-    <a href="{% url 'strain-create' %}" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:bg-green-300">Add Strain</a>
-  {% endif %}
-  {% if can_manage_members %}
-    <a href="{% url 'membership-list' %}" class="rounded-md border border-primary/70 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20">Manage Members</a>
-  {% endif %}
-</section>
+<div class="grid grid-cols-1 gap-6 xl:grid-cols-4">
+  <aside class="rounded-xl border border-slate-700 bg-card-bg p-4 shadow-lg shadow-black/20">
+    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Saved Views</h3>
+    <ul class="mt-3 space-y-2 text-sm">
+      {% for view in saved_views %}
+        <li class="rounded border border-slate-700 bg-slate-900/60 p-2">
+          <div class="flex items-center justify-between gap-2">
+            <a href="{% url 'saved-view-apply' view.pk %}" class="text-primary hover:underline">{{ view.name }}</a>
+            {% if view.is_shared %}<span class="text-xs text-emerald-300">Shared</span>{% else %}<span class="text-xs text-slate-400">Private</span>{% endif %}
+          </div>
+          <div class="mt-1 text-xs text-slate-400">by {{ view.created_by.username }}</div>
+          {% if view.created_by_id == request.user.id or can_manage_members %}
+          <form method="post" action="{% url 'saved-view-delete' view.pk %}" class="mt-2">
+            {% csrf_token %}
+            <button type="submit" class="text-xs text-rose-300 hover:text-rose-200">Delete</button>
+          </form>
+          {% endif %}
+        </li>
+      {% empty %}
+        <li class="text-sm text-slate-400">No saved views yet.</li>
+      {% endfor %}
+    </ul>
+  </aside>
 
-<section class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Total Strains</h3>
-    <p class="mt-2 text-3xl font-bold text-primary">{{ strain_count }}</p>
-  </article>
-  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Organisms</h3>
-    <p class="mt-2 text-3xl font-bold text-primary">{{ organism_count }}</p>
-  </article>
-  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Plasmids</h3>
-    <p class="mt-2 text-3xl font-bold text-primary">{{ plasmid_count }}</p>
-  </article>
-  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Pending</h3>
-    <p class="mt-2 text-3xl font-bold text-primary">{{ pending_count }}</p>
-  </article>
-  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Approved</h3>
-    <p class="mt-2 text-3xl font-bold text-primary">{{ approved_count }}</p>
-  </article>
-  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Archived</h3>
-    <p class="mt-2 text-3xl font-bold text-primary">{{ archived_count }}</p>
-  </article>
-</section>
+  <div class="xl:col-span-3">
+    <section class="mt-0 flex flex-wrap gap-3">
+      {% if can_edit %}
+        <a href="{% url 'strain-create' %}" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:bg-green-300">Add Strain</a>
+      {% endif %}
+      {% if can_manage_members %}
+        <a href="{% url 'membership-list' %}" class="rounded-md border border-primary/70 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20">Manage Members</a>
+      {% endif %}
+    </section>
 
-<section class="mt-8 rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
-  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Most Active Organisms</h3>
-  <ul class="mt-3 space-y-2 text-slate-200">
-    {% for organism in recent_organisms %}
-      <li class="flex justify-between border-b border-slate-700 pb-2">
-        <span>{{ organism.name }}</span>
-        <span>{{ organism.total }} strains</span>
-      </li>
-    {% empty %}
-      <li>No organisms found in this database.</li>
+    <section class="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+      <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20"><h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Total Strains</h3><p class="mt-2 text-3xl font-bold text-primary">{{ strain_count }}</p></article>
+      <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20"><h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Organisms</h3><p class="mt-2 text-3xl font-bold text-primary">{{ organism_count }}</p></article>
+      <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20"><h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Plasmids</h3><p class="mt-2 text-3xl font-bold text-primary">{{ plasmid_count }}</p></article>
+      <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20"><h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Pending</h3><p class="mt-2 text-3xl font-bold text-primary">{{ pending_count }}</p></article>
+      <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20"><h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Approved</h3><p class="mt-2 text-3xl font-bold text-primary">{{ approved_count }}</p></article>
+      <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20"><h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Archived</h3><p class="mt-2 text-3xl font-bold text-primary">{{ archived_count }}</p></article>
+    </section>
+
+    <section class="mt-8 rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Most Active Organisms</h3>
+      <ul class="mt-3 space-y-2 text-slate-200">
+        {% for organism in recent_organisms %}
+          <li class="flex justify-between border-b border-slate-700 pb-2"><span>{{ organism.name }}</span><span>{{ organism.total }} strains</span></li>
+        {% empty %}
+          <li>No organisms found in this database.</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+</div>
+
+<div id="filterBuilderModal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/60 p-4">
+  <div class="w-full max-w-3xl rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+    <div class="mb-4 flex items-center justify-between">
+      <h3 class="text-lg font-semibold text-slate-100">Advanced Filter Builder</h3>
+      <button id="closeFilterBuilder" type="button" class="text-slate-400 hover:text-slate-200">✕</button>
+    </div>
+    <form method="post" action="{% url 'saved-view-create' %}" id="savedViewForm" class="space-y-4">
+      {% csrf_token %}
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <input type="text" name="name" placeholder="View name" required class="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-primary focus:outline-none">
+        <label class="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200"><input type="checkbox" name="is_shared" value="true" class="rounded border-slate-500 bg-slate-900 text-primary focus:ring-primary"> Shared view</label>
+      </div>
+
+      <div class="rounded-lg border border-slate-700 bg-slate-800 p-4">
+        <div class="mb-2 flex items-center justify-between"><span class="text-sm font-medium text-slate-200">Conditions</span><button id="addCondition" type="button" class="rounded bg-primary px-2 py-1 text-xs font-semibold text-black">+ Add</button></div>
+        <div id="conditionsContainer" class="space-y-2"></div>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs uppercase text-slate-400">Logic</label>
+        <select id="logicSelect" class="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm">
+          <option value="AND">AND</option>
+          <option value="OR">OR</option>
+        </select>
+      </div>
+
+      <input type="hidden" name="filter_definition" id="filterDefinitionInput">
+      <div class="flex justify-end gap-2">
+        <button type="button" id="cancelFilterBuilder" class="rounded-md border border-slate-600 px-4 py-2 text-sm">Cancel</button>
+        <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black">Save View</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const modal = document.getElementById('filterBuilderModal');
+  const openBtn = document.getElementById('openFilterBuilder');
+  const closeBtn = document.getElementById('closeFilterBuilder');
+  const cancelBtn = document.getElementById('cancelFilterBuilder');
+  const addConditionBtn = document.getElementById('addCondition');
+  const container = document.getElementById('conditionsContainer');
+  const form = document.getElementById('savedViewForm');
+  const filterDefInput = document.getElementById('filterDefinitionInput');
+  const logicSelect = document.getElementById('logicSelect');
+
+  const fieldOptions = [
+    {value: 'strain_id', label: 'Strain ID'},
+    {value: 'name', label: 'Name'},
+    {value: 'organism', label: 'Organism'},
+    {value: 'status', label: 'Status'},
+    {value: 'genotype', label: 'Genotype'},
+    {% for definition in current_database.custom_field_definitions.all %}
+    {value: '{{ definition.name|escapejs }}', label: '{{ definition.name|escapejs }} (Custom)'},
     {% endfor %}
-  </ul>
-</section>
+  ];
+
+  const operatorOptions = [
+    {value: 'equals', label: 'Equals'},
+    {value: 'contains', label: 'Contains'},
+    {value: 'startswith', label: 'Starts with'},
+    {value: 'endswith', label: 'Ends with'},
+    {value: 'greater_than', label: 'Greater than'},
+    {value: 'less_than', label: 'Less than'},
+  ];
+
+  const rowTemplate = () => {
+    const row = document.createElement('div');
+    row.className = 'grid grid-cols-1 gap-2 md:grid-cols-12';
+    row.innerHTML = `
+      <select class="condition-field rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-sm md:col-span-4">${fieldOptions.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}</select>
+      <select class="condition-operator rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-sm md:col-span-3">${operatorOptions.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}</select>
+      <input type="text" class="condition-value rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-sm md:col-span-4" placeholder="Value">
+      <button type="button" class="remove-condition rounded-md border border-rose-700/60 px-2 py-2 text-xs text-rose-300 md:col-span-1">X</button>
+    `;
+    row.querySelector('.remove-condition').addEventListener('click', () => row.remove());
+    return row;
+  };
+
+  const openModal = () => modal.classList.remove('hidden');
+  const closeModal = () => modal.classList.add('hidden');
+
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  addConditionBtn.addEventListener('click', () => container.appendChild(rowTemplate()));
+
+  if (!container.children.length) {
+    container.appendChild(rowTemplate());
+  }
+
+  form.addEventListener('submit', (event) => {
+    const conditions = [...container.querySelectorAll('.grid')].map((row) => ({
+      field: row.querySelector('.condition-field').value,
+      operator: row.querySelector('.condition-operator').value,
+      value: row.querySelector('.condition-value').value,
+    })).filter((item) => item.value !== '');
+
+    if (!conditions.length) {
+      event.preventDefault();
+      alert('Please add at least one condition.');
+      return;
+    }
+
+    filterDefInput.value = JSON.stringify({conditions, logic: logicSelect.value});
+  });
+</script>
 {% endblock %}

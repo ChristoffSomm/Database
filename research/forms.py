@@ -1,7 +1,7 @@
 from django import forms
 
 from .helpers import get_active_database, get_custom_field_definitions
-from .models import CustomFieldDefinition, CustomFieldValue, Location, Organism, Plasmid, Strain
+from .models import CustomFieldDefinition, CustomFieldValue, Location, Organism, Plasmid, SavedView, Strain
 
 
 class GlobalSearchForm(forms.Form):
@@ -22,6 +22,18 @@ class CustomFieldDefinitionForm(forms.ModelForm):
         if field_type != CustomFieldDefinition.FieldType.CHOICE:
             cleaned_data['choices'] = ''
         return cleaned_data
+
+
+class SavedViewForm(forms.ModelForm):
+    class Meta:
+        model = SavedView
+        fields = ['name', 'is_shared']
+
+    def clean_name(self):
+        name = (self.cleaned_data.get('name') or '').strip()
+        if not name:
+            raise forms.ValidationError('View name is required.')
+        return name
 
 
 class StrainForm(forms.ModelForm):
