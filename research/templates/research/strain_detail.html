@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}{{ strain.strain_id }} | Strain DB{% endblock %}
+{% block content %}
+<h2 class="text-2xl font-bold mb-6">{{ strain.strain_id }} — {{ strain.name }}</h2>
+<div class="grid md:grid-cols-2 gap-4">
+  <div class="bg-slate-800 border border-slate-700 rounded p-4 space-y-2">
+    <p><span class="text-slate-400">Organism:</span> {{ strain.organism.name }}</p>
+    <p><span class="text-slate-400">Genotype:</span> {{ strain.genotype }}</p>
+    <p><span class="text-slate-400">Status:</span> {{ strain.get_status_display }}</p>
+    <p><span class="text-slate-400">Created By:</span> {{ strain.created_by }}</p>
+  </div>
+  <div class="bg-slate-800 border border-slate-700 rounded p-4 space-y-2">
+    <p><span class="text-slate-400">Location:</span> {{ strain.location }}</p>
+    <p><span class="text-slate-400">Created:</span> {{ strain.created_at }}</p>
+    <p><span class="text-slate-400">Updated:</span> {{ strain.updated_at }}</p>
+    <p><span class="text-slate-400">Plasmids:</span>
+      {% for plasmid in strain.plasmids.all %}{{ plasmid.name }}{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}
+    </p>
+  </div>
+</div>
+{% endblock %}
