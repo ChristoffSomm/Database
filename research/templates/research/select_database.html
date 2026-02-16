@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Select Database | Strain DB{% endblock %}
+{% block header_title %}Select Research Database{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl rounded-xl border border-slate-700 bg-card-bg p-6">
+  <h2 class="mb-4 text-2xl font-bold">Your Research Databases</h2>
+  {% if memberships %}
+    <div class="space-y-3">
+      {% for membership in memberships %}
+        <form method="post" action="{% url 'database-switch' %}" class="flex items-center justify-between rounded border border-slate-700 bg-slate-900/40 p-4">
+          {% csrf_token %}
+          <div>
+            <p class="font-semibold text-slate-100">{{ membership.research_database.name }}</p>
+            <p class="text-sm text-slate-400">{{ membership.research_database.description|default:'No description' }}</p>
+            <p class="mt-1 text-xs uppercase tracking-wide text-primary">Role: {{ membership.get_role_display }}</p>
+          </div>
+          <div>
+            <input type="hidden" name="database_id" value="{{ membership.research_database.id }}">
+            <input type="hidden" name="next" value="{% url 'dashboard' %}">
+            <button type="submit" class="rounded bg-primary px-4 py-2 font-semibold text-black">{% if current_database_id == membership.research_database.id %}Selected{% else %}Select{% endif %}</button>
+          </div>
+        </form>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-slate-300">You are not currently a member of any research database.</p>
+  {% endif %}
+</div>
+{% endblock %}

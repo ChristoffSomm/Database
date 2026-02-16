@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from .helpers import SESSION_DATABASE_KEY
 from .models import (
     AuditLog,
     DatabaseMembership,
@@ -17,10 +18,10 @@ class DatabaseScopedAdmin(admin.ModelAdmin):
     """Restrict edit/delete rights by membership role inside the selected database."""
 
     def _database_for_obj(self, request, obj=None):
-        if obj is not None and hasattr(obj, 'database'):
-            return obj.database
+        if obj is not None and hasattr(obj, 'research_database'):
+            return obj.research_database
 
-        db_id = request.session.get('current_database_id')
+        db_id = request.session.get(SESSION_DATABASE_KEY)
         if db_id:
             return ResearchDatabase.objects.filter(id=db_id).first()
         return None
@@ -30,19 +31,19 @@ class DatabaseScopedAdmin(admin.ModelAdmin):
             return DatabaseMembership.Role.ADMIN
         if database is None:
             return None
-        membership = DatabaseMembership.objects.filter(user=request.user, database=database).first()
+        membership = DatabaseMembership.objects.filter(user=request.user, research_database=database).first()
         return membership.role if membership else None
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
-        if request.user.is_superuser or not hasattr(self.model, 'database'):
+        if request.user.is_superuser or not hasattr(self.model, 'research_database'):
             return queryset
 
-        db_id = request.session.get('current_database_id')
+        db_id = request.session.get(SESSION_DATABASE_KEY)
         if not db_id:
             return queryset.none()
 
-        return queryset.filter(database_id=db_id)
+        return queryset.filter(research_database_id=db_id)
 
     def has_add_permission(self, request):
         database = self._database_for_obj(request)
@@ -67,47 +68,52 @@ class StrainPlasmidInline(admin.TabularInline):
 
 @admin.register(ResearchDatabase)
 class ResearchDatabaseAdmin(admin.ModelAdmin):
-    list_display = ('name', 'created_by', 'created_at')
-    search_fields = ('name', 'description', 'created_by__username')
+    list_display = ('name', 'description', 'created_by', 'created_at')
+    search_fields = ('name', 'description', 'created_by__username', 'created_by__email')
+    list_filter = ('created_at',)
 
 
 @admin.register(DatabaseMembership)
 class DatabaseMembershipAdmin(admin.ModelAdmin):
-    list_display = ('user', 'database', 'role', 'created_at')
-    list_filter = ('role', 'database')
-    search_fields = ('user__username', 'database__name')
+    list_display = ('user', 'research_database', 'role', 'created_at')
+    list_filter = ('role', 'research_database', 'created_at')
+    search_fields = ('user__username', 'user__email', 'research_database__name')
 
 
 @admin.register(Strain)
 class StrainAdmin(DatabaseScopedAdmin):
-    list_display = ('strain_id', 'name', 'database', 'organism', 'location', 'status', 'created_by', 'updated_at')
+    list_display = ('strain_id', 'name', 'research_database', 'organism', 'location', 'status', 'created_by', 'updated_at')
     search_fields = ('strain_id', 'name', 'genotype')
-    list_filter = ('status', 'organism', 'database')
+    list_filter = ('status', 'organism', 'research_database')
     inlines = [StrainPlasmidInline]
 
 
 @admin.register(Organism)
 class OrganismAdmin(DatabaseScopedAdmin):
-    list_display = ('name', 'database')
+    list_display = ('name', 'research_database')
     search_fields = ('name',)
+    list_filter = ('research_database',)
 
 
 @admin.register(Location)
 class LocationAdmin(DatabaseScopedAdmin):
-    list_display = ('database', 'building', 'room', 'freezer', 'box', 'position')
+    list_display = ('research_database', 'building', 'room', 'freezer', 'box', 'position')
     search_fields = ('building', 'room', 'freezer', 'box', 'position')
+    list_filter = ('research_database', 'building', 'room')
 
 
 @admin.register(Plasmid)
 class PlasmidAdmin(DatabaseScopedAdmin):
-    list_display = ('name', 'database', 'resistance_marker')
+    list_display = ('name', 'research_database', 'resistance_marker')
     search_fields = ('name', 'resistance_marker')
+    list_filter = ('research_database', 'resistance_marker')
 
 
 @admin.register(File)
 class FileAdmin(DatabaseScopedAdmin):
-    list_display = ('strain', 'database', 'file', 'uploaded_by', 'uploaded_at')
+    list_display = ('strain', 'research_database', 'file', 'uploaded_by', 'uploaded_at')
     search_fields = ('strain__strain_id', 'file')
+    list_filter = ('research_database', 'uploaded_at')
 
 
 @admin.register(AuditLog)

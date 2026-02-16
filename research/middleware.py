@@ -2,7 +2,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 
 from .models import DatabaseMembership
-from .utils import SESSION_DATABASE_KEY
+from .helpers import SESSION_DATABASE_KEY
 
 
 class LoginRequiredMiddleware:
@@ -49,12 +49,12 @@ class CurrentDatabaseMiddleware:
         database_id = request.session.get(SESSION_DATABASE_KEY)
         membership = None
         if database_id:
-            membership = DatabaseMembership.objects.select_related('database').filter(
+            membership = DatabaseMembership.objects.select_related('research_database').filter(
                 user=request.user,
-                database_id=database_id,
+                research_database_id=database_id,
             ).first()
             if membership:
-                request.current_database = membership.database
+                request.current_database = membership.research_database
             else:
                 request.session.pop(SESSION_DATABASE_KEY, None)
 

@@ -5,13 +5,14 @@ User = get_user_model()
 
 
 class ResearchDatabase(models.Model):
-    name = models.CharField(max_length=200)
+    name = models.CharField(max_length=200, db_index=True)
     description = models.TextField(blank=True)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_research_databases')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['name']
+        indexes = [models.Index(fields=['name']), models.Index(fields=['created_at'])]
 
     def __str__(self):
         return self.name
@@ -24,52 +25,59 @@ class DatabaseMembership(models.Model):
         VIEWER = 'viewer', 'Viewer'
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='database_memberships')
-    database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='memberships')
-    role = models.CharField(max_length=20, choices=Role.choices, default=Role.VIEWER)
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='memberships')
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.VIEWER, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('user', 'database')
-        ordering = ['database__name', 'user__username']
+        unique_together = ('user', 'research_database')
+        ordering = ['research_database__name', 'user__username']
+        indexes = [models.Index(fields=['user', 'research_database']), models.Index(fields=['research_database', 'role'])]
 
     def __str__(self):
-        return f'{self.user} @ {self.database} ({self.role})'
+        return f'{self.user} @ {self.research_database} ({self.role})'
 
 
 class Organism(models.Model):
-    database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='organisms')
-    name = models.CharField(max_length=200)
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='organisms')
+    name = models.CharField(max_length=200, db_index=True)
 
     class Meta:
-        unique_together = ('database', 'name')
+        unique_together = ('research_database', 'name')
+        indexes = [models.Index(fields=['research_database', 'name'])]
 
     def __str__(self):
         return self.name
 
 
 class Location(models.Model):
-    database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='locations')
-    building = models.CharField(max_length=120)
-    room = models.CharField(max_length=120)
-    freezer = models.CharField(max_length=120)
-    box = models.CharField(max_length=120)
-    position = models.CharField(max_length=120)
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='locations')
+    building = models.CharField(max_length=120, db_index=True)
+    room = models.CharField(max_length=120, db_index=True)
+    freezer = models.CharField(max_length=120, db_index=True)
+    box = models.CharField(max_length=120, db_index=True)
+    position = models.CharField(max_length=120, db_index=True)
 
     class Meta:
-        unique_together = ('database', 'building', 'room', 'freezer', 'box', 'position')
+        unique_together = ('research_database', 'building', 'room', 'freezer', 'box', 'position')
+        indexes = [
+            models.Index(fields=['research_database', 'building', 'room']),
+            models.Index(fields=['research_database', 'freezer', 'box', 'position']),
+        ]
 
     def __str__(self):
         return f'{self.building} / {self.room} / {self.freezer} / {self.box} / {self.position}'
 
 
 class Plasmid(models.Model):
-    database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='plasmids')
-    name = models.CharField(max_length=150)
-    resistance_marker = models.CharField(max_length=150)
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='plasmids')
+    name = models.CharField(max_length=150, db_index=True)
+    resistance_marker = models.CharField(max_length=150, db_index=True)
     notes = models.TextField(blank=True)
 
     class Meta:
-        unique_together = ('database', 'name')
+        unique_together = ('research_database', 'name')
+        indexes = [models.Index(fields=['research_database', 'name']), models.Index(fields=['research_database', 'resistance_marker'])]
 
     def __str__(self):
         return self.name
@@ -82,13 +90,13 @@ class Strain(models.Model):
         APPROVED = 'approved', 'Approved'
         ARCHIVED = 'archived', 'Archived'
 
-    database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='strains')
-    strain_id = models.CharField(max_length=60)
-    name = models.CharField(max_length=200)
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='strains')
+    strain_id = models.CharField(max_length=60, db_index=True)
+    name = models.CharField(max_length=200, db_index=True)
     organism = models.ForeignKey(Organism, on_delete=models.PROTECT, related_name='strains')
     genotype = models.TextField()
     location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name='strains')
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT, db_index=True)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_strains')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -96,7 +104,12 @@ class Strain(models.Model):
 
     class Meta:
         ordering = ['-updated_at']
-        unique_together = ('database', 'strain_id')
+        unique_together = ('research_database', 'strain_id')
+        indexes = [
+            models.Index(fields=['research_database', 'strain_id']),
+            models.Index(fields=['research_database', 'status']),
+            models.Index(fields=['research_database', 'updated_at']),
+        ]
 
     def __str__(self):
         return f'{self.strain_id} - {self.name}'
@@ -114,11 +127,14 @@ class StrainPlasmid(models.Model):
 
 
 class File(models.Model):
-    database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='files')
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='files')
     strain = models.ForeignKey(Strain, on_delete=models.CASCADE, related_name='files')
     file = models.FileField(upload_to='strain_files/%Y/%m/%d')
     uploaded_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='uploaded_files')
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['research_database', 'uploaded_at']), models.Index(fields=['strain', 'uploaded_at'])]
 
     def __str__(self):
         return f'{self.strain.strain_id}: {self.file.name}'

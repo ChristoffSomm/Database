@@ -1,0 +1,14 @@
+{% if available_memberships %}
+<form method="post" action="{% url 'database-switch' %}" class="flex items-center gap-2">
+  {% csrf_token %}
+  <span class="text-xs uppercase tracking-wide text-slate-400">Database</span>
+  <select name="database_id" onchange="this.form.submit()" class="rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-100">
+    {% for membership in available_memberships %}
+      <option value="{{ membership.research_database.id }}" {% if current_database and membership.research_database.id == current_database.id %}selected{% endif %}>
+        {{ membership.research_database.name }} ({{ membership.get_role_display }})
+      </option>
+    {% endfor %}
+  </select>
+  <input type="hidden" name="next" value="{{ request.path }}">
+</form>
+{% endif %}

@@ -8,8 +8,8 @@ from django.urls import reverse
 from django.views import View
 from django.views.generic import DetailView, ListView, TemplateView
 
+from .helpers import SESSION_DATABASE_KEY, get_current_database
 from .models import DatabaseMembership, Organism, Plasmid, ResearchDatabase, Strain
-from .utils import SESSION_DATABASE_KEY, get_current_database
 
 
 class CurrentDatabaseQuerysetMixin:
@@ -23,7 +23,7 @@ class CurrentDatabaseQuerysetMixin:
         current_database = self.get_current_database()
         if current_database is None:
             return queryset.none()
-        return queryset.filter(database=current_database)
+        return queryset.filter(research_database=current_database)
 
 
 class DatabasePermissionMixin:
@@ -32,10 +32,21 @@ class DatabasePermissionMixin:
     def dispatch(self, request, *args, **kwargs):
         if self.allowed_roles:
             current_database = getattr(request, 'current_database', None) or get_current_database(request)
-            membership = DatabaseMembership.objects.filter(user=request.user, database=current_database).first()
+            membership = DatabaseMembership.objects.filter(
+                user=request.user,
+                research_database=current_database,
+            ).first()
             if not membership or membership.role not in self.allowed_roles:
                 raise PermissionDenied('Insufficient permissions for this database.')
         return super().dispatch(request, *args, **kwargs)
+
+
+class EditorRequiredMixin(DatabasePermissionMixin):
+    allowed_roles = (DatabaseMembership.Role.ADMIN, DatabaseMembership.Role.EDITOR)
+
+
+class AdminRequiredMixin(DatabasePermissionMixin):
+    allowed_roles = (DatabaseMembership.Role.ADMIN,)
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -44,9 +55,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
-        strains = Strain.objects.filter(database=current_database)
-        organisms = Organism.objects.filter(database=current_database)
-        plasmids = Plasmid.objects.filter(database=current_database)
+        strains = Strain.objects.filter(research_database=current_database)
+        organisms = Organism.objects.filter(research_database=current_database)
+        plasmids = Plasmid.objects.filter(research_database=current_database)
 
         context['strain_count'] = strains.count()
         context['organism_count'] = organisms.count()
@@ -58,12 +69,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class DatabaseSelectView(LoginRequiredMixin, TemplateView):
-    template_name = 'research/database_select.html'
+class SelectDatabaseView(LoginRequiredMixin, TemplateView):
+    template_name = 'research/select_database.html'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['memberships'] = DatabaseMembership.objects.select_related('database').filter(user=self.request.user)
+        context['memberships'] = DatabaseMembership.objects.select_related('research_database').filter(user=self.request.user)
         context['current_database_id'] = self.request.session.get(SESSION_DATABASE_KEY)
         return context
 
@@ -72,7 +83,7 @@ class SwitchDatabaseView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         database = get_object_or_404(
             ResearchDatabase,
-            id=request.POST.get('database_id'),
+            id=kwargs.get('database_id') or request.POST.get('database_id'),
             memberships__user=request.user,
         )
         request.session[SESSION_DATABASE_KEY] = database.id
@@ -80,22 +91,23 @@ class SwitchDatabaseView(LoginRequiredMixin, View):
         return redirect(next_url)
 
 
-class DatabaseMembershipListView(LoginRequiredMixin, DatabasePermissionMixin, ListView):
+class DatabaseMembershipListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
     template_name = 'research/membership_list.html'
     context_object_name = 'memberships'
-    allowed_roles = (DatabaseMembership.Role.ADMIN,)
 
     def get_queryset(self):
         current_database = getattr(self.request, 'current_database', None) or get_current_database(self.request)
-        return DatabaseMembership.objects.filter(database=current_database).select_related('user', 'database')
+        return DatabaseMembership.objects.filter(research_database=current_database).select_related('user', 'research_database')
 
 
-class DatabaseMembershipUpdateRoleView(LoginRequiredMixin, DatabasePermissionMixin, View):
-    allowed_roles = (DatabaseMembership.Role.ADMIN,)
-
+class DatabaseMembershipUpdateRoleView(LoginRequiredMixin, AdminRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         current_database = getattr(request, 'current_database', None) or get_current_database(request)
-        membership = get_object_or_404(DatabaseMembership, id=kwargs['membership_id'], database=current_database)
+        membership = get_object_or_404(
+            DatabaseMembership,
+            id=kwargs['membership_id'],
+            research_database=current_database,
+        )
         role = request.POST.get('role')
         valid_roles = {choice[0] for choice in DatabaseMembership.Role.choices}
         if role in valid_roles:
