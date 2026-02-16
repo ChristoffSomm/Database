@@ -1,0 +1,13 @@
+<form method="post" enctype="multipart/form-data" class="rounded-lg border border-slate-700 bg-slate-800 p-6">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="upload">
+  <label class="block text-sm font-semibold text-slate-200" for="id_file">CSV file</label>
+  <div class="mt-3 rounded-lg border-2 border-dashed border-slate-600 bg-slate-900 p-8 text-center">
+    {{ form.file }}
+    <p class="mt-2 text-xs text-slate-500">Accepted format: .csv</p>
+  </div>
+  {% if form.file.errors %}
+    <p class="mt-2 text-sm text-red-400">{{ form.file.errors|join:', ' }}</p>
+  {% endif %}
+  <button type="submit" class="mt-5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Continue to Mapping</button>
+</form>

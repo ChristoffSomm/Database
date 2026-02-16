@@ -10,9 +10,16 @@ from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from .forms import BulkEditStrainsForm, CustomFieldDefinitionForm, GlobalSearchForm, SavedViewForm, StrainForm
+from .forms import BulkEditStrainsForm, CSVUploadForm, CustomFieldDefinitionForm, GlobalSearchForm, SavedViewForm, StrainForm
 from .filtering import apply_filters
 from .helpers import SESSION_DATABASE_KEY, get_active_database, get_custom_field_definitions, get_custom_field_values
+from .import_utils import (
+    STANDARD_IMPORT_FIELDS,
+    build_mapped_rows,
+    import_strains_from_csv_rows,
+    parse_csv_upload,
+    validate_import_row,
+)
 from .models import (
     ActivityLog,
     AuditLog,
@@ -620,6 +627,172 @@ class BulkEditStrainsView(LoginRequiredMixin, EditorRequiredMixin, CurrentDataba
         context['selected_count'] = selected_strains.count()
         context['selected_ids'] = [strain.id for strain in selected_strains]
         return context
+
+
+class CSVUploadView(LoginRequiredMixin, EditorRequiredMixin, TemplateView):
+    template_name = 'research/csv_upload.html'
+
+    session_key = 'csv_import_state'
+
+    def _get_state(self):
+        return self.request.session.get(self.session_key, {})
+
+    def _set_state(self, **kwargs):
+        state = self._get_state()
+        state.update(kwargs)
+        self.request.session[self.session_key] = state
+        self.request.session.modified = True
+
+    def _clear_state(self):
+        self.request.session.pop(self.session_key, None)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        state = self._get_state()
+        active_database = self.get_active_database()
+        custom_fields = list(get_custom_field_definitions(active_database))
+        mapping_choices = [('', 'Do not import')]
+        mapping_choices.extend(STANDARD_IMPORT_FIELDS)
+        mapping_choices.extend([(f'custom:{field.name}', f'Custom: {field.name}') for field in custom_fields])
+
+        context.update(
+            {
+                'form': kwargs.get('form') or CSVUploadForm(),
+                'step': kwargs.get('step') or state.get('step', 'upload'),
+                'headers': state.get('headers', []),
+                'header_mappings': [
+                    {'header': header, 'selected': state.get('column_mapping', {}).get(header, '')}
+                    for header in state.get('headers', [])
+                ],
+                'filename': state.get('filename', ''),
+                'column_mapping': state.get('column_mapping', {}),
+                'mapping_choices': mapping_choices,
+                'preview_entries': kwargs.get('preview_entries', []),
+                'mapped_field_names': kwargs.get('mapped_field_names', []),
+            }
+        )
+        return context
+
+    def get(self, request, *args, **kwargs):
+        state = self._get_state()
+        step = request.GET.get('step') or state.get('step') or 'upload'
+        if step not in {'upload', 'mapping', 'preview'}:
+            step = 'upload'
+
+        if step == 'mapping' and not state.get('headers'):
+            step = 'upload'
+        if step == 'preview' and not state.get('column_mapping'):
+            step = 'mapping' if state.get('headers') else 'upload'
+
+        if step == 'preview':
+            preview_entries, mapped_field_names = self._build_preview(state)
+            return self.render_to_response(
+                self.get_context_data(
+                    step='preview',
+                    preview_entries=preview_entries,
+                    mapped_field_names=mapped_field_names,
+                )
+            )
+
+        return self.render_to_response(self.get_context_data(step=step))
+
+    def post(self, request, *args, **kwargs):
+        action = request.POST.get('action', 'upload')
+        if action == 'cancel':
+            self._clear_state()
+            messages.info(request, 'CSV import cancelled.')
+            return HttpResponseRedirect(reverse('csv_upload'))
+
+        if action == 'upload':
+            form = CSVUploadForm(request.POST, request.FILES)
+            if not form.is_valid():
+                return self.render_to_response(self.get_context_data(step='upload', form=form))
+
+            uploaded_file = form.cleaned_data['file']
+            try:
+                headers, rows = parse_csv_upload(uploaded_file)
+            except Exception as exc:  # noqa: BLE001
+                form.add_error('file', str(exc))
+                return self.render_to_response(self.get_context_data(step='upload', form=form))
+
+            self._set_state(step='mapping', filename=uploaded_file.name, headers=headers, rows=rows, column_mapping={})
+            messages.success(request, 'CSV uploaded successfully. Map your columns to strain fields.')
+            return HttpResponseRedirect(f"{reverse('csv_upload')}?step=mapping")
+
+        state = self._get_state()
+        if not state.get('headers'):
+            messages.error(request, 'Upload a CSV file first.')
+            return HttpResponseRedirect(reverse('csv_upload'))
+
+        if action == 'mapping':
+            column_mapping = {}
+            used_fields = set()
+            mapping_error = False
+            for header in state.get('headers', []):
+                mapped_field = (request.POST.get(f'map_{header}') or '').strip()
+                column_mapping[header] = mapped_field
+                if not mapped_field:
+                    continue
+                if mapped_field in used_fields:
+                    mapping_error = True
+                used_fields.add(mapped_field)
+
+            if mapping_error:
+                messages.error(request, 'Each target field can only be mapped once.')
+                self._set_state(step='mapping', column_mapping=column_mapping)
+                return self.render_to_response(self.get_context_data(step='mapping'))
+
+            self._set_state(step='preview', column_mapping=column_mapping)
+            return HttpResponseRedirect(f"{reverse('csv_upload')}?step=preview")
+
+        if action == 'confirm_import':
+            active_database = self.get_active_database()
+            custom_definitions = {definition.name: definition for definition in get_custom_field_definitions(active_database)}
+            mapped_rows = build_mapped_rows(state.get('rows', []), state.get('column_mapping', {}))
+            created_count, skipped_count = import_strains_from_csv_rows(
+                active_database=active_database,
+                user=request.user,
+                mapped_rows=mapped_rows,
+                custom_definitions_by_name=custom_definitions,
+            )
+
+            AuditLog.objects.create(
+                user=request.user,
+                action='csv_import',
+                record_type='Strain',
+                record_id=str(active_database.id),
+                metadata={
+                    'rows_created': created_count,
+                    'rows_skipped': skipped_count,
+                    'filename': state.get('filename', ''),
+                },
+            )
+
+            self._clear_state()
+            messages.success(request, f'Import complete. Created: {created_count}. Skipped: {skipped_count}.')
+            return HttpResponseRedirect(reverse('strain-list'))
+
+        messages.error(request, 'Unknown CSV import action.')
+        return HttpResponseRedirect(reverse('csv_upload'))
+
+    def _build_preview(self, state):
+        active_database = self.get_active_database()
+        custom_definitions = {definition.name: definition for definition in get_custom_field_definitions(active_database)}
+        mapped_rows = build_mapped_rows(state.get('rows', []), state.get('column_mapping', {}))
+        mapped_field_names = [value for value in state.get('column_mapping', {}).values() if value]
+
+        preview_entries = []
+        for index, mapped_row in enumerate(mapped_rows[:10]):
+            row_errors = validate_import_row(mapped_row, active_database, custom_definitions)
+            preview_entries.append(
+                {
+                    'row_number': index + 1,
+                    'cells': [mapped_row.get(field_name, '') for field_name in mapped_field_names],
+                    'errors': row_errors,
+                }
+            )
+
+        return preview_entries, mapped_field_names
 
 
 class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, DetailView):

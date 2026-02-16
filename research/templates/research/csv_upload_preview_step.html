@@ -1,0 +1,48 @@
+<div class="rounded-lg border border-slate-700 bg-slate-800 p-6">
+  <h3 class="text-lg font-semibold">Preview (first 10 rows)</h3>
+  <p class="mt-1 text-sm text-slate-400">Check highlighted issues before import.</p>
+
+  <div class="mt-4 overflow-x-auto">
+    <table class="min-w-full divide-y divide-slate-700 text-sm">
+      <thead class="bg-slate-900 text-slate-300">
+        <tr>
+          <th class="px-3 py-2 text-left">#</th>
+          {% for field_name in mapped_field_names %}
+            <th class="px-3 py-2 text-left">{{ field_name }}</th>
+          {% endfor %}
+          <th class="px-3 py-2 text-left">Validation</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-700">
+        {% for entry in preview_entries %}
+          <tr class="{% if entry.errors %}bg-red-500/10{% else %}hover:bg-slate-700/30{% endif %}">
+            <td class="px-3 py-2 text-slate-400">{{ entry.row_number }}</td>
+            {% for cell in entry.cells %}
+              <td class="px-3 py-2">{{ cell|default:'—' }}</td>
+            {% endfor %}
+            <td class="px-3 py-2">
+              {% if entry.errors %}
+                <ul class="list-disc space-y-1 pl-5 text-xs text-red-300">
+                  {% for err in entry.errors %}
+                    <li>{{ err }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <span class="text-xs text-green-300">Looks good</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td class="px-3 py-3 text-slate-400" colspan="99">No rows found in CSV.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" class="mt-5 flex gap-2">
+    {% csrf_token %}
+    <button type="submit" name="action" value="confirm_import" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Confirm Import</button>
+    <a href="{% url 'csv_upload' %}?step=mapping" class="rounded-md border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">Back to Mapping</a>
+    <button type="submit" name="action" value="cancel" class="rounded-md border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">Cancel</button>
+  </form>
+</div>

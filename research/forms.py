@@ -287,3 +287,20 @@ class BulkEditStrainsForm(forms.Form):
                 continue
             updates[definition] = value
         return updates
+
+
+class CSVUploadForm(forms.Form):
+    file = forms.FileField(
+        label='CSV file',
+        help_text='Upload a .csv file to import strains.',
+        widget=forms.ClearableFileInput(attrs={'accept': '.csv,text/csv'}),
+    )
+
+    def clean_file(self):
+        uploaded_file = self.cleaned_data['file']
+        filename = (uploaded_file.name or '').lower()
+        content_type = (uploaded_file.content_type or '').lower()
+        valid_types = {'text/csv', 'application/csv', 'application/vnd.ms-excel'}
+        if not filename.endswith('.csv') and content_type not in valid_types:
+            raise forms.ValidationError('Please upload a valid CSV file.')
+        return uploaded_file

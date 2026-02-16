@@ -5,7 +5,10 @@
 <div class="space-y-6">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-2xl font-bold">Strain List</h2>
-    <a href="{% url 'strain-create' %}" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Create Strain</a>
+    <div class="flex items-center gap-2">
+      <a href="{% url 'csv_upload' %}" class="rounded-md border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-semibold text-primary hover:bg-slate-800">Import CSV</a>
+      <a href="{% url 'strain-create' %}" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Create Strain</a>
+    </div>
   </div>
 
   <form method="get" class="grid gap-3 rounded-lg border border-slate-700 bg-slate-800 p-4 md:grid-cols-4">

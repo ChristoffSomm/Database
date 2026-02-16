@@ -1,0 +1,22 @@
+<form method="post" class="rounded-lg border border-slate-700 bg-slate-800 p-6">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="mapping">
+  <h3 class="text-lg font-semibold">Column Mapping</h3>
+  <p class="mt-1 text-sm text-slate-400">File: {{ filename }}</p>
+  <div class="mt-4 grid gap-3 md:grid-cols-2">
+    {% for item in header_mappings %}
+      <div>
+        <label class="mb-1 block text-xs uppercase tracking-wide text-slate-400">{{ item.header }}</label>
+        <select name="map_{{ item.header }}" class="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+          {% for value, label in mapping_choices %}
+            <option value="{{ value }}" {% if item.selected == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endfor %}
+  </div>
+  <div class="mt-5 flex gap-2">
+    <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Continue to Preview</button>
+    <button type="submit" name="action" value="cancel" class="rounded-md border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">Cancel</button>
+  </div>
+</form>
