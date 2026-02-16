@@ -6,6 +6,7 @@
   <div class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-2xl font-bold">{{ strain.strain_id }} — {{ strain.name }}</h2>
     <div class="flex gap-2">
+      <a href="{% url 'strain-history' strain.pk %}" class="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-slate-950 hover:opacity-90">View History</a>
       <a href="{% url 'strain-update' strain.pk %}" class="rounded-md bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600">Edit</a>
       <a href="{% url 'strain-delete' strain.pk %}" class="rounded-md bg-red-600 px-3 py-2 text-sm hover:bg-red-500">Delete</a>
     </div>

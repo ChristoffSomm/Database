@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}{{ strain.strain_id }} History | Strain DB{% endblock %}
+{% block header_title %}Strain Version History{% endblock %}
+{% block content %}
+<div class="space-y-4">
+  <div class="flex items-center justify-between">
+    <h2 class="text-2xl font-bold">{{ strain.strain_id }} — {{ strain.name }}</h2>
+    <a href="{% url 'strain-detail' strain.pk %}" class="rounded-md bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600">Back to Strain</a>
+  </div>
+
+  <div class="space-y-3">
+    {% for version in versions %}
+      <div class="rounded-lg border border-slate-700 bg-slate-800 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p class="text-sm text-slate-300">Version #{{ version.pk }}</p>
+            <p class="text-xs text-slate-400">{{ version.changed_at }} by {{ version.changed_by|default:'System' }}</p>
+          </div>
+          <a href="{% url 'strain-version-detail' strain.pk version.pk %}" class="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-slate-950 hover:opacity-90">View Diff</a>
+        </div>
+      </div>
+    {% empty %}
+      <div class="rounded-lg border border-slate-700 bg-slate-800 p-4 text-slate-400">No versions recorded yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

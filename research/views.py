@@ -1,3 +1,4 @@
+from datetime import date
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
@@ -33,8 +34,10 @@ from .models import (
     ResearchDatabase,
     SavedView,
     Strain,
+    StrainVersion,
 )
 from .permissions import DatabasePermissionMixin
+from .versioning import compare_versions, serialize_strain_snapshot
 
 User = get_user_model()
 
@@ -820,6 +823,133 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
         )[:20]
         context['custom_field_values'] = get_custom_field_values(strain)
         return context
+
+
+class StrainHistoryView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, DetailView):
+    model = Strain
+    template_name = 'research/strain_history.html'
+    context_object_name = 'strain'
+    required_permission = 'view'
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True).select_related('created_by')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['versions'] = self.object.versions.select_related('changed_by').order_by('-changed_at')
+        return context
+
+
+class StrainVersionDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabaseQuerysetMixin, DetailView):
+    model = StrainVersion
+    pk_url_kwarg = 'version_pk'
+    template_name = 'research/strain_version_detail.html'
+    context_object_name = 'version'
+    required_permission = 'view'
+
+    def get_queryset(self):
+        active_database = self.get_active_database()
+        return (
+            StrainVersion.objects.select_related('strain', 'changed_by')
+            .filter(
+                strain__research_database=active_database,
+                strain__is_active=True,
+                strain_id=self.kwargs['pk'],
+            )
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        version = self.object
+        newer_version = (
+            version.strain.versions.filter(changed_at__gt=version.changed_at)
+            .order_by('changed_at')
+            .first()
+        )
+        comparison_snapshot = newer_version.snapshot if newer_version else serialize_strain_snapshot(version.strain)
+        diff_map = compare_versions(version.snapshot, comparison_snapshot)
+        context['strain'] = version.strain
+        context['comparison_target'] = newer_version
+        context['can_restore'] = self.get_active_database().can_edit(self.request.user)
+        context['diff_items'] = [
+            {
+                'field': field_name,
+                'old': values['old'],
+                'new': values['new'],
+            }
+            for field_name, values in diff_map.items()
+        ]
+        return context
+
+
+class RestoreVersionView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQuerysetMixin, View):
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        strain = get_object_or_404(Strain, pk=kwargs['pk'], research_database=active_database, is_active=True)
+        version = get_object_or_404(StrainVersion, pk=kwargs['version_pk'], strain=strain)
+        snapshot = version.snapshot or {}
+
+        standard_fields = {
+            field.name
+            for field in Strain._meta.fields
+            if field.name not in {'id', 'created_at', 'updated_at', 'created_by'}
+        }
+
+        with transaction.atomic():
+            for field_name in standard_fields:
+                if field_name == 'research_database':
+                    continue
+                if field_name not in snapshot:
+                    continue
+                setattr(strain, field_name, snapshot.get(field_name))
+
+            strain.save(changed_by=request.user)
+
+            plasmid_ids = snapshot.get('plasmids', []) or []
+            valid_plasmid_ids = Plasmid.objects.filter(
+                research_database=active_database,
+                id__in=plasmid_ids,
+            ).values_list('id', flat=True)
+            strain.plasmids.set(valid_plasmid_ids)
+
+            custom_snapshot = snapshot.get('custom_fields') or {}
+            definitions = {
+                definition.name: definition
+                for definition in CustomFieldDefinition.objects.filter(research_database=active_database)
+            }
+            for definition in definitions.values():
+                CustomFieldValue.objects.filter(strain=strain, field_definition=definition).delete()
+
+            for field_name, value in custom_snapshot.items():
+                definition = definitions.get(field_name)
+                if definition is None:
+                    continue
+                custom_value = CustomFieldValue(strain=strain, field_definition=definition)
+                if definition.field_type == CustomFieldDefinition.FieldType.TEXT:
+                    custom_value.value_text = value
+                elif definition.field_type == CustomFieldDefinition.FieldType.NUMBER:
+                    custom_value.value_number = value
+                elif definition.field_type == CustomFieldDefinition.FieldType.DATE:
+                    custom_value.value_date = date.fromisoformat(value) if isinstance(value, str) and value else value
+                elif definition.field_type == CustomFieldDefinition.FieldType.BOOLEAN:
+                    custom_value.value_boolean = value
+                elif definition.field_type == CustomFieldDefinition.FieldType.CHOICE:
+                    custom_value.value_choice = value
+                custom_value.save()
+
+            AuditLog.objects.create(
+                user=request.user,
+                action='restore_version',
+                record_type='Strain',
+                record_id=str(strain.pk),
+                metadata={
+                    'version_id': version.pk,
+                    'strain_id': strain.strain_id,
+                },
+            )
+
+        messages.success(request, f'Strain {strain.strain_id} restored from version {version.pk}.')
+        return HttpResponseRedirect(reverse('strain-history', kwargs={'pk': strain.pk}))
 
 
 class StrainCreateView(LoginRequiredMixin, EditorRequiredMixin, CreateView):
