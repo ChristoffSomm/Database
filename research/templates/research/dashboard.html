@@ -1,23 +1,85 @@
 {% extends 'base.html' %}
+
 {% block title %}Dashboard | Strain DB{% endblock %}
+{% block header_title %}Research Dashboard{% endblock %}
+
 {% block content %}
-<h2 class="text-2xl font-bold mb-6">Dashboard</h2>
-<div class="grid sm:grid-cols-3 gap-4 mb-8">
-  <div class="bg-slate-800 p-4 rounded border border-slate-700"><p>Total Strains</p><p class="text-3xl text-[#00c853]">{{ strain_count }}</p></div>
-  <div class="bg-slate-800 p-4 rounded border border-slate-700"><p>Active Strains</p><p class="text-3xl text-[#00c853]">{{ active_count }}</p></div>
-  <div class="bg-slate-800 p-4 rounded border border-slate-700"><p>Organisms</p><p class="text-3xl text-[#00c853]">{{ organism_count }}</p></div>
-</div>
-<div class="bg-slate-800 rounded border border-slate-700">
-  <div class="px-4 py-3 border-b border-slate-700 font-semibold">Top Organisms</div>
-  <table class="w-full text-left">
-    <thead><tr class="text-slate-400"><th class="px-4 py-2">Name</th><th class="px-4 py-2">Strains</th></tr></thead>
-    <tbody>
-      {% for organism in recent_organisms %}
-      <tr class="border-t border-slate-700"><td class="px-4 py-2">{{ organism.name }}</td><td class="px-4 py-2">{{ organism.total }}</td></tr>
-      {% empty %}
-      <tr><td class="px-4 py-2" colspan="2">No data available.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="mb-6">
+  <h2 class="text-2xl font-bold text-slate-100">Overview</h2>
+  <p class="mt-2 text-sm text-slate-400">Quick status and recent activity across strains, organisms, and storage.</p>
+</section>
+
+<section class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Total Strains</h3>
+      <span class="text-primary">🧪</span>
+    </div>
+    <p class="text-3xl font-bold text-primary">1,284</p>
+    <p class="mt-2 text-sm text-slate-400">Registered strain entries in active catalog.</p>
+  </article>
+
+  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Organisms</h3>
+      <span class="text-primary">🧬</span>
+    </div>
+    <p class="text-3xl font-bold text-primary">96</p>
+    <p class="mt-2 text-sm text-slate-400">Tracked organisms with annotated strain lineage.</p>
+  </article>
+
+  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Plasmids</h3>
+      <span class="text-primary">🧷</span>
+    </div>
+    <p class="text-3xl font-bold text-primary">413</p>
+    <p class="mt-2 text-sm text-slate-400">Validated vectors linked to experiment records.</p>
+  </article>
+
+  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Pending Reviews</h3>
+      <span class="text-primary">✅</span>
+    </div>
+    <p class="text-3xl font-bold text-primary">23</p>
+    <p class="mt-2 text-sm text-slate-400">Submissions waiting for quality-control review.</p>
+  </article>
+
+  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Storage Alerts</h3>
+      <span class="text-primary">📦</span>
+    </div>
+    <p class="text-3xl font-bold text-primary">7</p>
+    <p class="mt-2 text-sm text-slate-400">Locations nearing capacity in cryo-storage units.</p>
+  </article>
+
+  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">File Uploads</h3>
+      <span class="text-primary">📁</span>
+    </div>
+    <p class="text-3xl font-bold text-primary">52</p>
+    <p class="mt-2 text-sm text-slate-400">New sequencing files synced in the last 24 hours.</p>
+  </article>
+
+  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Recent Activity</h3>
+      <span class="text-primary">⏱</span>
+    </div>
+    <p class="text-3xl font-bold text-primary">148</p>
+    <p class="mt-2 text-sm text-slate-400">Record updates completed during this workweek.</p>
+  </article>
+
+  <article class="rounded-xl border border-slate-700 bg-card-bg p-5 shadow-lg shadow-black/20">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">System Health</h3>
+      <span class="text-primary">🖥</span>
+    </div>
+    <p class="text-3xl font-bold text-primary">99.9%</p>
+    <p class="mt-2 text-sm text-slate-400">Database and indexing services currently stable.</p>
+  </article>
+</section>
 {% endblock %}
