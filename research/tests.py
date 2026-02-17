@@ -1,5 +1,9 @@
+import io
+import json
+import zipfile
 from datetime import timedelta
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 from django.urls import reverse
@@ -88,6 +92,75 @@ class DatabaseIsolationTests(TestCase):
         response = self.client.get(reverse('strain-list'))
         self.assertContains(response, self.strain_a.strain_id)
         self.assertNotContains(response, self.strain_b.strain_id)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class OrganizationSnapshotTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.owner = User.objects.create_user(username='snapshot-owner', password='pass123')
+        self.other = User.objects.create_user(username='snapshot-other', password='pass123')
+        self.organization = Organization.objects.create(name='Org Snapshot', slug='org-snapshot', created_by=self.owner)
+        OrganizationMembership.objects.create(
+            user=self.owner,
+            organization=self.organization,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        self.database = ResearchDatabase.objects.create(
+            organization=self.organization,
+            name='Snapshot DB',
+            created_by=self.owner,
+        )
+        self.organism = Organism.objects.create(research_database=self.database, name='E. coli')
+        self.location = Location.objects.create(
+            research_database=self.database,
+            building='B1',
+            room='R1',
+            freezer='F1',
+            box='BX1',
+            position='P1',
+        )
+        self.strain = Strain.objects.create(
+            research_database=self.database,
+            strain_id='SNAP-001',
+            name='Snapshot Strain',
+            organism=self.organism,
+            genotype='WT',
+            location=self.location,
+            created_by=self.owner,
+        )
+
+    def test_export_requires_membership_and_returns_zip(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('organization-export', kwargs={'org_id': self.organization.uuid}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/zip')
+
+        zip_file = zipfile.ZipFile(io.BytesIO(response.content))
+        payload = json.loads(zip_file.read('snapshot.json').decode('utf-8'))
+        self.assertEqual(payload['version'], '1.0')
+        self.assertEqual(payload['organization']['uuid'], str(self.organization.uuid))
+
+    def test_restore_rejects_wrong_org_uuid(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('organization-export', kwargs={'org_id': self.organization.uuid}))
+        zip_file = zipfile.ZipFile(io.BytesIO(response.content))
+        payload = json.loads(zip_file.read('snapshot.json').decode('utf-8'))
+
+        other_org = Organization.objects.create(name='Other', slug='other', created_by=self.owner)
+        OrganizationMembership.objects.create(user=self.owner, organization=other_org, role=OrganizationMembership.Role.ADMIN)
+        restore_buffer = io.BytesIO()
+        with zipfile.ZipFile(restore_buffer, 'w', zipfile.ZIP_DEFLATED) as restore_zip:
+            restore_zip.writestr('snapshot.json', json.dumps(payload))
+        restore_buffer.seek(0)
+
+        upload = SimpleUploadedFile('snapshot.zip', restore_buffer.getvalue(), content_type='application/zip')
+        response = self.client.post(
+            reverse('organization-restore', kwargs={'org_id': other_org.uuid}),
+            {'snapshot_file': upload},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(ResearchDatabase.objects.filter(organization=other_org).count() == 0)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)

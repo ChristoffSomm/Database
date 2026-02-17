@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 import os
+import uuid
 from django.utils.text import slugify
 
 from django.db import models
@@ -30,6 +31,7 @@ class UserProfile(models.Model):
 
 
 class Organization(models.Model):
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)

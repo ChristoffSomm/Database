@@ -40,6 +40,16 @@ class OrganizationMembershipForm(forms.Form):
         return cleaned_data
 
 
+class OrganizationSnapshotRestoreForm(forms.Form):
+    snapshot_file = forms.FileField()
+
+    def clean_snapshot_file(self):
+        upload = self.cleaned_data['snapshot_file']
+        if not upload.name.lower().endswith('.zip'):
+            raise forms.ValidationError('Please upload a .zip snapshot file.')
+        return upload
+
+
 class GlobalSearchForm(forms.Form):
     q = forms.CharField(max_length=200, required=False, strip=True)
 
