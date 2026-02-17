@@ -1,40 +1,43 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="{% if theme == 'dark' %}dark{% endif %}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Research Dashboard{% endblock %}</title>
+  <script>
+    document.documentElement.classList.toggle('dark', '{{ theme }}' === 'dark');
+  </script>
   <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 </head>
-<body class="min-h-screen bg-[#1c1f26] text-slate-100">
+<body class="min-h-screen bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
   {% if user.is_authenticated %}
   <div class="min-h-screen">
-    <aside class="fixed inset-y-0 left-0 z-30 w-64 border-r border-slate-800 bg-[#14161c] px-5 py-6">
+    <aside class="fixed inset-y-0 left-0 z-30 w-64 border-r border-gray-200 bg-white px-5 py-6 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-8 text-xl font-bold tracking-wide text-primary">StrainDB</div>
       <nav class="space-y-2 text-sm font-medium">
         {% if active_database %}
-          <a href="{% url 'dashboard' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Dashboard — {{ active_database.name }}</a>
-          <a href="{% url 'organization-members' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Organization Members</a>
-          <a href="{% url 'strain-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Strains</a>
-          <a href="{% url 'activity-feed' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Activity</a>
-          <a href="{% url 'membership-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Memberships</a>
-          <a href="/admin/" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Admin</a>
+          <a href="{% url 'dashboard' %}" class="block rounded-md px-3 py-2 text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Dashboard — {{ active_database.name }}</a>
+          <a href="{% url 'organization-members' %}" class="block rounded-md px-3 py-2 text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Organization Members</a>
+          <a href="{% url 'strain-list' %}" class="block rounded-md px-3 py-2 text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Strains</a>
+          <a href="{% url 'activity-feed' %}" class="block rounded-md px-3 py-2 text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Activity</a>
+          <a href="{% url 'membership-list' %}" class="block rounded-md px-3 py-2 text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Memberships</a>
+          <a href="/admin/" class="block rounded-md px-3 py-2 text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Admin</a>
         {% endif %}
-        <a href="{% url 'organization-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Organizations</a>
-        <a href="{% url 'database-select' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Select Database</a>
+        <a href="{% url 'organization-list' %}" class="block rounded-md px-3 py-2 text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Organizations</a>
+        <a href="{% url 'database-select' %}" class="block rounded-md px-3 py-2 text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Select Database</a>
         <form method="post" action="{% url 'logout' %}">
           {% csrf_token %}
-          <button type="submit" class="w-full rounded-md px-3 py-2 text-left text-slate-200 transition hover:bg-card-bg hover:text-primary">Logout</button>
+          <button type="submit" class="w-full rounded-md px-3 py-2 text-left text-gray-700 transition hover:bg-gray-100 hover:text-primary dark:text-gray-200 dark:hover:bg-gray-700">Logout</button>
         </form>
       </nav>
     </aside>
 
     <div class="ml-64">
-      <header class="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-800 bg-[#1c1f26]/95 px-6 backdrop-blur">
+      <header class="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-6 backdrop-blur dark:border-gray-700 dark:bg-gray-900/95">
         <div class="flex items-center gap-4">
           <span class="text-base font-bold tracking-wide text-primary">StrainDB</span>
-          <h1 class="text-lg font-semibold text-slate-100">{% block header_title %}Dashboard{% endblock %}</h1>
+          <h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{% block header_title %}Dashboard{% endblock %}</h1>
         </div>
         <div class="flex items-center gap-4">
           <form method="get" action="{% url 'search-results' %}" class="hidden md:block">
@@ -45,20 +48,23 @@
               type="search"
               value="{{ request.GET.q|default:'' }}"
               placeholder="Search strains, organisms, plasmids..."
-              class="w-80 rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-400 focus:border-primary focus:outline-none"
+              class="w-80 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-500 focus:border-primary focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-400"
             >
           </form>
           {% include 'research/partials/organization_switch_button.html' %}
           {% include 'research/partials/database_switch_button.html' %}
+          <a href="{% url 'toggle-theme' %}" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700">
+            {% if theme == 'dark' %}☀️ Light Mode{% else %}🌙 Dark Mode{% endif %}
+          </a>
           <details class="relative">
-            <summary class="flex cursor-pointer list-none items-center gap-3 rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-200">
+            <summary class="flex cursor-pointer list-none items-center gap-3 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200">
               <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary font-semibold text-black">U</span>
               <span>{{ user.username }}</span>
             </summary>
-            <div class="absolute right-0 mt-2 w-44 rounded-md border border-slate-700 bg-card-bg p-1 shadow-xl">
+            <div class="absolute right-0 mt-2 w-44 rounded-md border border-gray-300 bg-white p-1 shadow-xl dark:border-gray-600 dark:bg-gray-800">
               <form method="post" action="{% url 'logout' %}">
                 {% csrf_token %}
-                <button type="submit" class="block w-full rounded px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700">Sign out</button>
+                <button type="submit" class="block w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700">Sign out</button>
               </form>
             </div>
           </details>
@@ -69,7 +75,7 @@
         {% if messages %}
           <div class="mb-4 space-y-2">
             {% for message in messages %}
-              <div class="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm text-green-200">{{ message }}</div>
+              <div class="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm text-green-700 dark:text-green-200">{{ message }}</div>
             {% endfor %}
           </div>
         {% endif %}

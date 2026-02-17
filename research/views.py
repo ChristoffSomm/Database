@@ -62,6 +62,7 @@ from .models import (
     Strain,
     StrainAttachment,
     StrainVersion,
+    UserProfile,
 )
 from .permissions import DatabasePermissionMixin
 from .versioning import compare_versions, serialize_strain_snapshot
@@ -410,6 +411,18 @@ def switch_database(request, database_id):
     request.session[SESSION_DATABASE_KEY] = database.id
     next_url = request.META.get('HTTP_REFERER') or reverse('dashboard')
     return redirect(next_url)
+
+
+@login_required
+def toggle_theme(request):
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile.theme_preference = (
+        UserProfile.ThemePreference.DARK
+        if profile.theme_preference == UserProfile.ThemePreference.LIGHT
+        else UserProfile.ThemePreference.LIGHT
+    )
+    profile.save(update_fields=['theme_preference'])
+    return redirect(request.META.get('HTTP_REFERER') or reverse('dashboard'))
 
 
 class SwitchDatabaseView(LoginRequiredMixin, View):

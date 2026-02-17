@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
@@ -17,6 +18,8 @@ from .models import (
 )
 
 AUDITED_MODELS = (Strain, Organism, Location, Plasmid, CustomFieldDefinition, CustomFieldValue, File)
+
+User = get_user_model()
 
 
 def _resolve_database(instance):
@@ -124,3 +127,13 @@ def ensure_creator_admins_organization(sender, instance, created, **kwargs):
         organization=instance,
         defaults={'role': OrganizationMembership.Role.ADMIN},
     )
+
+
+@receiver(post_save, sender=User)
+def ensure_user_profile(sender, instance, created, **kwargs):
+    if not created:
+        return
+
+    from .models import UserProfile
+
+    UserProfile.objects.get_or_create(user=instance)
