@@ -1,4 +1,5 @@
 import json
+import zipfile
 from datetime import date, timedelta
 
 from django.core.cache import cache
@@ -9,7 +10,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Case, CharField, Count, F, Max, Q, Value, When
 from django.db.models.functions import Cast, Coalesce, TruncMonth
-from django.http import FileResponse, Http404, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.views import View
@@ -24,6 +25,7 @@ from .forms import (
     GlobalSearchForm,
     OrganizationForm,
     OrganizationMembershipForm,
+    OrganizationSnapshotRestoreForm,
     SavedViewForm,
     StrainAttachmentUploadForm,
     StrainForm,
@@ -65,6 +67,7 @@ from .models import (
     UserProfile,
 )
 from .permissions import DatabasePermissionMixin
+from .snapshot import build_organization_snapshot, make_snapshot_zip, restore_organization_snapshot
 from .versioning import compare_versions, serialize_strain_snapshot
 
 User = get_user_model()
@@ -104,6 +107,16 @@ class OrganizationAdminRequiredMixin(LoginRequiredMixin):
         if organization.get_user_role(request.user) != OrganizationMembership.Role.ADMIN:
             return HttpResponseForbidden('Organization admin permission required.')
         return super().dispatch(request, *args, **kwargs)
+
+
+def _get_org_with_export_permission(user, org_uuid):
+    organization = get_object_or_404(Organization, uuid=org_uuid)
+    membership = OrganizationMembership.objects.filter(organization=organization, user=user).first()
+    is_owner = organization.created_by_id == user.id
+    is_admin = membership and membership.role == OrganizationMembership.Role.ADMIN
+    if membership is None or not (is_owner or is_admin):
+        return None
+    return organization
 
 
 def _can_delete_attachments(database, user):
@@ -170,6 +183,7 @@ class OrganizationMembersView(OrganizationAdminRequiredMixin, TemplateView):
             organization=organization
         ).order_by('user__username')
         context['form'] = OrganizationMembershipForm()
+        context['snapshot_restore_form'] = OrganizationSnapshotRestoreForm()
         return context
 
     def post(self, request, *args, **kwargs):
@@ -201,6 +215,59 @@ class OrganizationMembersView(OrganizationAdminRequiredMixin, TemplateView):
             membership.role = role
             membership.save(update_fields=['role'])
         messages.success(request, f'Organization member updated: {user.username}.')
+        return redirect('organization-members')
+
+
+class OrganizationExportView(LoginRequiredMixin, View):
+    def get(self, request, org_id, *args, **kwargs):
+        organization = _get_org_with_export_permission(request.user, org_id)
+        if organization is None:
+            return HttpResponseForbidden('Organization owner/admin permission required.')
+
+        snapshot = build_organization_snapshot(organization)
+        zip_buffer = make_snapshot_zip(snapshot)
+        timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"{slugify(organization.name)}_{timestamp}.zip"
+
+        response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+
+class OrganizationRestoreView(LoginRequiredMixin, View):
+    http_method_names = ['post']
+
+    def post(self, request, org_id, *args, **kwargs):
+        organization = _get_org_with_export_permission(request.user, org_id)
+        if organization is None:
+            return HttpResponseForbidden('Organization owner/admin permission required.')
+
+        form = OrganizationSnapshotRestoreForm(request.POST, request.FILES)
+        if not form.is_valid():
+            messages.error(request, 'Invalid restore file. Please upload a .zip snapshot export.')
+            return redirect('organization-members')
+
+        upload = form.cleaned_data['snapshot_file']
+        try:
+            with zipfile.ZipFile(upload) as zip_file:
+                snapshot_data = zip_file.read('snapshot.json')
+        except (zipfile.BadZipFile, KeyError):
+            messages.error(request, 'Uploaded archive must contain snapshot.json.')
+            return redirect('organization-members')
+
+        try:
+            snapshot = json.loads(snapshot_data.decode('utf-8'))
+            restore_organization_snapshot(
+                organization=organization,
+                snapshot=snapshot,
+                acting_user=request.user,
+                users_queryset=User.objects.all(),
+            )
+        except (ValueError, json.JSONDecodeError) as exc:
+            messages.error(request, f'Restore failed: {exc}')
+            return redirect('organization-members')
+
+        messages.success(request, f'Snapshot restored for organization "{organization.name}".')
         return redirect('organization-members')
 
 
