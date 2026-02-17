@@ -306,48 +306,133 @@ class StrainVersion(models.Model):
 class CustomFieldDefinition(models.Model):
     class FieldType(models.TextChoices):
         TEXT = 'text', 'Text'
-        NUMBER = 'number', 'Number'
+        LONG_TEXT = 'long_text', 'Long text'
+        INTEGER = 'integer', 'Integer'
+        DECIMAL = 'decimal', 'Decimal'
         DATE = 'date', 'Date'
         BOOLEAN = 'boolean', 'Boolean'
-        CHOICE = 'choice', 'Choice'
+        SINGLE_SELECT = 'single_select', 'Single select'
+        MULTI_SELECT = 'multi_select', 'Multi select'
+        FOREIGN_KEY = 'foreign_key', 'Foreign key'
+        FILE = 'file', 'File'
+        URL = 'url', 'URL'
+        EMAIL = 'email', 'Email'
+
+    NUMBER = 'integer'
+    CHOICE = 'single_select'
+
+    class RelatedModel(models.TextChoices):
+        ORGANISM = 'organism', 'Organism'
+        PLASMID = 'plasmid', 'Plasmid'
+        LOCATION = 'location', 'Location'
 
     name = models.CharField(max_length=200)
+    label = models.CharField(max_length=200, blank=True, default='')
+    key = models.SlugField(max_length=100, blank=True, default='')
     field_type = models.CharField(max_length=20, choices=FieldType.choices)
-    choices = models.TextField(blank=True)
+    choices = models.JSONField(default=list, blank=True)
+    default_value = models.JSONField(default=dict, blank=True)
+    help_text = models.TextField(blank=True)
+    validation_rules = models.JSONField(default=dict, blank=True)
+    is_unique = models.BooleanField(default=False)
+    conditional_logic = models.JSONField(default=dict, blank=True)
+    order = models.PositiveIntegerField(default=0, db_index=True)
+    visible_to_roles = models.JSONField(default=list, blank=True)
+    editable_to_roles = models.JSONField(default=list, blank=True)
+    related_model = models.CharField(max_length=30, choices=RelatedModel.choices, blank=True)
+    group = models.ForeignKey('CustomFieldGroup', on_delete=models.SET_NULL, null=True, blank=True, related_name='fields')
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='custom_field_definitions', null=True, blank=True)
     research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='custom_field_definitions')
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_custom_field_definitions')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['name']
-        unique_together = ('research_database', 'name')
-        indexes = [models.Index(fields=['research_database', 'field_type']), models.Index(fields=['research_database', 'name'])]
+        ordering = ['order', 'id']
+        unique_together = (('research_database', 'name'), ('research_database', 'key'))
+        indexes = [
+            models.Index(fields=['research_database', 'field_type']),
+            models.Index(fields=['research_database', 'name']),
+            models.Index(fields=['research_database', 'order']),
+            models.Index(fields=['organization', 'research_database']),
+        ]
 
     def __str__(self):
-        return f'{self.name} ({self.get_field_type_display()})'
+        return f'{self.label or self.name} ({self.get_field_type_display()})'
+
+    def save(self, *args, **kwargs):
+        if not self.label:
+            self.label = self.name
+        if not self.key:
+            self.key = slugify(self.name)
+        if not self.organization_id and self.research_database_id:
+            self.organization_id = self.research_database.organization_id
+        super().save(*args, **kwargs)
 
     def parsed_choices(self):
-        if self.field_type != self.FieldType.CHOICE:
+        if self.field_type not in {self.FieldType.SINGLE_SELECT, self.FieldType.MULTI_SELECT, self.FieldType.CHOICE}:
             return []
-        return [choice.strip() for choice in self.choices.split(',') if choice.strip()]
+        if isinstance(self.choices, str):
+            return [choice.strip() for choice in self.choices.split(',') if choice.strip()]
+        return [str(choice).strip() for choice in self.choices if str(choice).strip()]
+
+
+class CustomFieldGroup(models.Model):
+    name = models.CharField(max_length=150)
+    description = models.TextField(blank=True)
+    order = models.PositiveIntegerField(default=0, db_index=True)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='custom_field_groups', null=True, blank=True)
+    research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='custom_field_groups')
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_custom_field_groups')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'name']
+        unique_together = ('research_database', 'name')
+
+    def __str__(self):
+        return self.name
+
+
+class CustomFieldVisibilityRule(models.Model):
+    field_definition = models.ForeignKey(CustomFieldDefinition, on_delete=models.CASCADE, related_name='visibility_rules')
+    role = models.CharField(max_length=20, choices=DatabaseMembership.Role.choices)
+    can_view = models.BooleanField(default=True)
+    can_edit = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ('field_definition', 'role')
+
+    def __str__(self):
+        return f'{self.field_definition.key}:{self.role}'
 
 
 class CustomFieldValue(models.Model):
     strain = models.ForeignKey(Strain, on_delete=models.CASCADE, related_name='custom_field_values')
     field_definition = models.ForeignKey(CustomFieldDefinition, on_delete=models.CASCADE, related_name='values')
     value_text = models.TextField(null=True, blank=True)
+    value_long_text = models.TextField(null=True, blank=True)
     value_number = models.FloatField(null=True, blank=True)
+    value_integer = models.IntegerField(null=True, blank=True)
+    value_decimal = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     value_date = models.DateField(null=True, blank=True)
     value_boolean = models.BooleanField(null=True, blank=True)
     value_choice = models.CharField(max_length=255, null=True, blank=True)
+    value_single_select = models.CharField(max_length=255, null=True, blank=True)
+    value_multi_select = models.JSONField(default=list, blank=True)
+    value_fk_content_type = models.ForeignKey('contenttypes.ContentType', on_delete=models.SET_NULL, null=True, blank=True)
+    value_fk_object_id = models.PositiveIntegerField(null=True, blank=True)
+    value_file = models.FileField(upload_to='custom_field_files/', null=True, blank=True)
+    value_url = models.URLField(max_length=500, null=True, blank=True)
+    value_email = models.EmailField(max_length=254, null=True, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['strain', 'field_definition'], name='unique_strain_custom_field_value')]
         indexes = [
-            models.Index(fields=['field_definition', 'value_choice']),
-            models.Index(fields=['field_definition', 'value_number']),
+            models.Index(fields=['field_definition', 'value_single_select']),
+            models.Index(fields=['field_definition', 'value_integer']),
             models.Index(fields=['field_definition', 'value_date']),
             models.Index(fields=['strain', 'field_definition']),
+            models.Index(fields=['value_fk_content_type', 'value_fk_object_id']),
         ]
 
     def __str__(self):
@@ -358,16 +443,32 @@ class CustomFieldValue(models.Model):
         field_type = self.field_definition.field_type
         if field_type == CustomFieldDefinition.FieldType.TEXT:
             return self.value_text
-        if field_type == CustomFieldDefinition.FieldType.NUMBER:
-            return self.value_number
+        if field_type == CustomFieldDefinition.FieldType.LONG_TEXT:
+            return self.value_long_text
+        if field_type in {CustomFieldDefinition.FieldType.INTEGER, CustomFieldDefinition.FieldType.NUMBER}:
+            return self.value_integer
+        if field_type == CustomFieldDefinition.FieldType.DECIMAL:
+            return self.value_decimal
         if field_type == CustomFieldDefinition.FieldType.DATE:
             return self.value_date
         if field_type == CustomFieldDefinition.FieldType.BOOLEAN:
             if self.value_boolean is None:
                 return ''
             return 'Yes' if self.value_boolean else 'No'
-        if field_type == CustomFieldDefinition.FieldType.CHOICE:
-            return self.value_choice
+        if field_type in {CustomFieldDefinition.FieldType.SINGLE_SELECT, CustomFieldDefinition.FieldType.CHOICE}:
+            return self.value_single_select
+        if field_type == CustomFieldDefinition.FieldType.MULTI_SELECT:
+            return ', '.join(self.value_multi_select or [])
+        if field_type == CustomFieldDefinition.FieldType.FOREIGN_KEY and self.value_fk_content_type_id and self.value_fk_object_id:
+            model_class = self.value_fk_content_type.model_class()
+            if model_class:
+                return model_class.objects.filter(pk=self.value_fk_object_id).first()
+        if field_type == CustomFieldDefinition.FieldType.FILE:
+            return self.value_file
+        if field_type == CustomFieldDefinition.FieldType.URL:
+            return self.value_url
+        if field_type == CustomFieldDefinition.FieldType.EMAIL:
+            return self.value_email
         return ''
 
 

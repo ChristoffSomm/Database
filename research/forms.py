@@ -1,8 +1,11 @@
 from django import forms
+from django.contrib.contenttypes.models import ContentType
 
+from .dynamic_forms import build_dynamic_custom_fields, evaluate_condition_logic, save_dynamic_custom_values
 from .helpers import get_active_database, get_custom_field_definitions
 from .models import (
     CustomFieldDefinition,
+    CustomFieldGroup,
     CustomFieldValue,
     Location,
     Organization,
@@ -68,19 +71,41 @@ class MultipleFileField(forms.FileField):
         return [single_file_clean(data, initial)]
 
 
+class CustomFieldGroupForm(forms.ModelForm):
+    class Meta:
+        model = CustomFieldGroup
+        fields = ['name', 'description', 'order']
+
+
 class CustomFieldDefinitionForm(forms.ModelForm):
+    choices = forms.CharField(required=False, help_text='Comma-separated list for select fields.')
+
     class Meta:
         model = CustomFieldDefinition
-        fields = ['name', 'field_type', 'choices']
+        fields = [
+            'name', 'label', 'key', 'field_type', 'group', 'order', 'choices', 'default_value', 'help_text',
+            'validation_rules', 'is_unique', 'conditional_logic', 'visible_to_roles', 'editable_to_roles', 'related_model',
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk and isinstance(self.instance.choices, list):
+            self.fields['choices'].initial = ', '.join(self.instance.choices)
+
+    def clean_choices(self):
+        choices = (self.cleaned_data.get('choices') or '').strip()
+        return [value.strip() for value in choices.split(',') if value.strip()]
 
     def clean(self):
         cleaned_data = super().clean()
         field_type = cleaned_data.get('field_type')
-        choices = (cleaned_data.get('choices') or '').strip()
-        if field_type == CustomFieldDefinition.FieldType.CHOICE and not choices:
-            self.add_error('choices', 'Choices are required for choice fields.')
-        if field_type != CustomFieldDefinition.FieldType.CHOICE:
-            cleaned_data['choices'] = ''
+        choices = cleaned_data.get('choices') or []
+        if field_type in {CustomFieldDefinition.FieldType.SINGLE_SELECT, CustomFieldDefinition.FieldType.MULTI_SELECT} and not choices:
+            self.add_error('choices', 'Choices are required for select fields.')
+        if field_type not in {CustomFieldDefinition.FieldType.SINGLE_SELECT, CustomFieldDefinition.FieldType.MULTI_SELECT}:
+            cleaned_data['choices'] = []
+        if field_type == CustomFieldDefinition.FieldType.FOREIGN_KEY and not cleaned_data.get('related_model'):
+            self.add_error('related_model', 'Related model is required for foreign_key fields.')
         return cleaned_data
 
 
@@ -108,8 +133,7 @@ class StrainForm(forms.ModelForm):
         self.request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
 
-        self.custom_field_definitions = []
-        self.custom_field_names = []
+        self.dynamic_custom_fields = []
 
         current_database = self._get_current_database()
         if current_database:
@@ -123,50 +147,12 @@ class StrainForm(forms.ModelForm):
             self.fields['plasmids'].queryset = Plasmid.objects.none()
             self.fields['location'].queryset = Location.objects.none()
 
-        self._add_dynamic_custom_fields(current_database)
+        self.dynamic_custom_fields = build_dynamic_custom_fields(self, current_database, self.instance, self.request.user if self.request else None)
 
     def _get_current_database(self):
         if not self.request:
             return None
         return getattr(self.request, 'active_database', None) or get_active_database(self.request)
-
-    def _custom_field_name(self, definition_id):
-        return f'custom_field_{definition_id}'
-
-    def _add_dynamic_custom_fields(self, current_database):
-        definitions = list(get_custom_field_definitions(current_database))
-        existing_values = {}
-        if self.instance and self.instance.pk:
-            existing_values = {
-                value.field_definition_id: value
-                for value in self.instance.custom_field_values.select_related('field_definition')
-            }
-
-        for definition in definitions:
-            field_name = self._custom_field_name(definition.id)
-            self.custom_field_definitions.append(definition)
-            self.custom_field_names.append(field_name)
-            if definition.field_type == CustomFieldDefinition.FieldType.TEXT:
-                self.fields[field_name] = forms.CharField(required=False, label=definition.name)
-                if definition.id in existing_values:
-                    self.initial[field_name] = existing_values[definition.id].value_text
-            elif definition.field_type == CustomFieldDefinition.FieldType.NUMBER:
-                self.fields[field_name] = forms.FloatField(required=False, label=definition.name)
-                if definition.id in existing_values:
-                    self.initial[field_name] = existing_values[definition.id].value_number
-            elif definition.field_type == CustomFieldDefinition.FieldType.DATE:
-                self.fields[field_name] = forms.DateField(required=False, label=definition.name, widget=forms.DateInput(attrs={'type': 'date'}))
-                if definition.id in existing_values:
-                    self.initial[field_name] = existing_values[definition.id].value_date
-            elif definition.field_type == CustomFieldDefinition.FieldType.BOOLEAN:
-                self.fields[field_name] = forms.BooleanField(required=False, label=definition.name)
-                if definition.id in existing_values:
-                    self.initial[field_name] = bool(existing_values[definition.id].value_boolean)
-            elif definition.field_type == CustomFieldDefinition.FieldType.CHOICE:
-                choices = [('', '---------')] + [(choice, choice) for choice in definition.parsed_choices()]
-                self.fields[field_name] = forms.ChoiceField(required=False, label=definition.name, choices=choices)
-                if definition.id in existing_values:
-                    self.initial[field_name] = existing_values[definition.id].value_choice
 
     def clean_strain_id(self):
         strain_id = self.cleaned_data['strain_id'].strip()
@@ -204,6 +190,19 @@ class StrainForm(forms.ModelForm):
             if invalid_plasmids:
                 self.add_error('plasmids', 'One or more selected plasmids are not in the current database.')
 
+        for entry in self.dynamic_custom_fields:
+            definition = entry['definition']
+            field_name = entry['field_name']
+            value = cleaned_data.get(field_name)
+            if definition.conditional_logic and not evaluate_condition_logic(definition.conditional_logic, cleaned_data):
+                continue
+            if definition.is_unique and value not in (None, '', []):
+                qs = CustomFieldValue.objects.filter(field_definition=definition)
+                if self.instance and self.instance.pk:
+                    qs = qs.exclude(strain=self.instance)
+                if qs.filter(**entry['unique_lookup'](value)).exists():
+                    self.add_error(field_name, 'This custom field value must be unique.')
+
         return cleaned_data
 
     def save(self, commit=True):
@@ -214,41 +213,8 @@ class StrainForm(forms.ModelForm):
         if commit:
             instance.save()
             self.save_m2m()
-            self.save_custom_field_values(instance)
+            save_dynamic_custom_values(self, instance, self.dynamic_custom_fields)
         return instance
-
-    def save_custom_field_values(self, strain):
-        for definition in self.custom_field_definitions:
-            field_name = self._custom_field_name(definition.id)
-            submitted_value = self.cleaned_data.get(field_name)
-            is_empty = submitted_value in (None, '')
-            if definition.field_type == CustomFieldDefinition.FieldType.TEXT and isinstance(submitted_value, str):
-                submitted_value = submitted_value.strip()
-                is_empty = submitted_value == ''
-
-            if is_empty and definition.field_type != CustomFieldDefinition.FieldType.BOOLEAN:
-                CustomFieldValue.objects.filter(strain=strain, field_definition=definition).delete()
-                continue
-
-            custom_value, _ = CustomFieldValue.objects.get_or_create(strain=strain, field_definition=definition)
-            custom_value.value_text = None
-            custom_value.value_number = None
-            custom_value.value_date = None
-            custom_value.value_boolean = None
-            custom_value.value_choice = None
-
-            if definition.field_type == CustomFieldDefinition.FieldType.TEXT:
-                custom_value.value_text = submitted_value
-            elif definition.field_type == CustomFieldDefinition.FieldType.NUMBER:
-                custom_value.value_number = submitted_value
-            elif definition.field_type == CustomFieldDefinition.FieldType.DATE:
-                custom_value.value_date = submitted_value
-            elif definition.field_type == CustomFieldDefinition.FieldType.BOOLEAN:
-                custom_value.value_boolean = bool(submitted_value)
-            elif definition.field_type == CustomFieldDefinition.FieldType.CHOICE:
-                custom_value.value_choice = submitted_value
-
-            custom_value.save()
 
 
 class StrainAttachmentUploadForm(forms.Form):

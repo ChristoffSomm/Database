@@ -5,7 +5,9 @@ from .models import (
     ActivityLog,
     AuditLog,
     CustomFieldDefinition,
+    CustomFieldGroup,
     CustomFieldValue,
+    CustomFieldVisibilityRule,
     DatabaseMembership,
     File,
     Location,
@@ -102,16 +104,32 @@ class StrainAdmin(DatabaseScopedAdmin):
 
 @admin.register(CustomFieldDefinition)
 class CustomFieldDefinitionAdmin(DatabaseScopedAdmin):
-    list_display = ('name', 'field_type', 'research_database', 'created_by', 'created_at')
-    list_filter = ('field_type', 'research_database', 'created_at')
-    search_fields = ('name', 'choices', 'research_database__name', 'created_by__username')
+    list_display = ('label', 'key', 'field_type', 'group', 'order', 'organization', 'research_database', 'created_by', 'created_at')
+    list_filter = ('organization', 'research_database', 'field_type', 'created_at')
+    ordering = ('order', 'id')
+    search_fields = ('name', 'label', 'key', 'research_database__name', 'created_by__username')
 
 
 @admin.register(CustomFieldValue)
 class CustomFieldValueAdmin(DatabaseScopedAdmin):
-    list_display = ('strain', 'field_definition', 'value_text', 'value_number', 'value_date', 'value_boolean', 'value_choice')
-    list_filter = ('field_definition__field_type', 'field_definition__research_database')
-    search_fields = ('strain__strain_id', 'field_definition__name', 'value_text', 'value_choice')
+    list_display = ('strain', 'field_definition', 'value_text', 'value_long_text', 'value_integer', 'value_decimal', 'value_date', 'value_boolean', 'value_single_select')
+    list_filter = ('field_definition__research_database', 'field_definition__organization', 'field_definition__field_type')
+    search_fields = ('strain__strain_id', 'field_definition__name', 'value_text', 'value_long_text', 'value_single_select', 'value_email', 'value_url')
+
+
+
+
+@admin.register(CustomFieldGroup)
+class CustomFieldGroupAdmin(DatabaseScopedAdmin):
+    list_display = ('name', 'order', 'organization', 'research_database', 'created_by', 'created_at')
+    list_filter = ('organization', 'research_database')
+    ordering = ('order', 'name')
+
+
+@admin.register(CustomFieldVisibilityRule)
+class CustomFieldVisibilityRuleAdmin(DatabaseScopedAdmin):
+    list_display = ('field_definition', 'role', 'can_view', 'can_edit')
+    list_filter = ('role', 'field_definition__research_database')
 
 
 @admin.register(Organism)
