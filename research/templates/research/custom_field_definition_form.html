@@ -1,14 +1,23 @@
 {% extends 'base.html' %}
-{% block title %}Custom Field | Strain DB{% endblock %}
-{% block header_title %}Custom Field Definition{% endblock %}
+{% block title %}Schema Builder Field | Strain DB{% endblock %}
+{% block header_title %}Schema Builder - Field Definition{% endblock %}
 {% block content %}
-<div class="mx-auto max-w-2xl rounded-lg border border-slate-700 bg-slate-800 p-6">
+<div class="mx-auto max-w-4xl rounded-lg border border-slate-700 bg-slate-800 p-6">
   <form method="post" class="space-y-4">
     {% csrf_token %}
-    {{ form.as_p }}
+    <div class="grid gap-4 md:grid-cols-2">
+      {% for field in form %}
+      <div class="{% if field.name == 'help_text' or field.name == 'validation_rules' or field.name == 'conditional_logic' %}md:col-span-2{% endif %}">
+        <label class="mb-1 block text-sm font-medium text-slate-300" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}<p class="mt-1 text-xs text-red-300">{{ field.errors|join:', ' }}</p>{% endif %}
+        {% if field.help_text %}<p class="mt-1 text-xs text-slate-400">{{ field.help_text }}</p>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
     <div class="flex justify-end gap-3">
       <a href="{% url 'custom-field-definition-list' %}" class="rounded-md border border-slate-600 px-4 py-2 text-sm">Cancel</a>
-      <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black">Save</button>
+      <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black">Save Field</button>
     </div>
   </form>
 </div>

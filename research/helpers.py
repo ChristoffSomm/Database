@@ -175,13 +175,13 @@ def require_database_role(request, allowed_roles):
 def get_custom_field_definitions(research_database):
     if research_database is None:
         return CustomFieldDefinition.objects.none()
-    return CustomFieldDefinition.objects.filter(research_database=research_database).order_by('name', 'id')
+    return CustomFieldDefinition.objects.filter(research_database=research_database).select_related('group').order_by('group__order', 'order', 'id')
 
 
 def get_custom_field_values(strain):
     if strain is None:
         return CustomFieldValue.objects.none()
-    return CustomFieldValue.objects.filter(strain=strain).select_related('field_definition').order_by('field_definition__name')
+    return CustomFieldValue.objects.filter(strain=strain).select_related('field_definition', 'field_definition__group').order_by('field_definition__group__order', 'field_definition__order', 'field_definition__id')
 
 
 def serialize_field_value(value):

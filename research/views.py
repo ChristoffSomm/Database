@@ -22,6 +22,7 @@ from .forms import (
     BulkEditStrainsForm,
     CSVUploadForm,
     CustomFieldDefinitionForm,
+    CustomFieldGroupForm,
     GlobalSearchForm,
     OrganizationForm,
     OrganizationMembershipForm,
@@ -30,6 +31,7 @@ from .forms import (
     StrainAttachmentUploadForm,
     StrainForm,
 )
+from .dynamic_forms import evaluate_condition_logic
 from .filtering import apply_filters
 from .helpers import (
     SESSION_DATABASE_KEY,
@@ -51,7 +53,9 @@ from .models import (
     ActivityLog,
     AuditLog,
     CustomFieldDefinition,
+    CustomFieldGroup,
     CustomFieldValue,
+    CustomFieldVisibilityRule,
     DatabaseMembership,
     File,
     Organization,
@@ -622,42 +626,67 @@ class DatabaseTransferOwnershipView(LoginRequiredMixin, DatabasePermissionMixin,
         return HttpResponseRedirect(reverse('membership-list'))
 
 
-class CustomFieldDefinitionListView(LoginRequiredMixin, EditorRequiredMixin, ListView):
+class SchemaBuilderPermissionMixin(DatabasePermissionMixin):
+    required_permission = 'edit'
+
+
+class CustomFieldDefinitionListView(LoginRequiredMixin, DatabasePermissionMixin, ListView):
+    required_permission = 'view'
     model = CustomFieldDefinition
     template_name = 'research/custom_field_definition_list.html'
     context_object_name = 'custom_field_definitions'
 
     def get_queryset(self):
         active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
-        return CustomFieldDefinition.objects.filter(research_database=active_database).order_by('name')
+        return CustomFieldDefinition.objects.filter(research_database=active_database).select_related('group').order_by('group__order', 'order', 'id')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        context['field_groups'] = CustomFieldGroup.objects.filter(research_database=active_database).order_by('order', 'name')
+        context['can_edit_schema'] = active_database.can_edit(self.request.user) if active_database else False
+        return context
 
 
-class CustomFieldDefinitionCreateView(LoginRequiredMixin, EditorRequiredMixin, CreateView):
+class CustomFieldDefinitionCreateView(LoginRequiredMixin, SchemaBuilderPermissionMixin, CreateView):
     model = CustomFieldDefinition
     form_class = CustomFieldDefinitionForm
     template_name = 'research/custom_field_definition_form.html'
     success_url = reverse_lazy('custom-field-definition-list')
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        form.fields['group'].queryset = CustomFieldGroup.objects.filter(research_database=active_database).order_by('order', 'name')
+        return form
 
     def form_valid(self, form):
         active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
         form.instance.research_database = active_database
+        form.instance.organization = active_database.organization
         form.instance.created_by = self.request.user
-        messages.success(self.request, f'Custom field "{form.instance.name}" created.')
+        messages.success(self.request, f'Custom field "{form.instance.label}" created.')
         return super().form_valid(form)
 
 
-class CustomFieldDefinitionUpdateView(LoginRequiredMixin, EditorRequiredMixin, UpdateView):
+class CustomFieldDefinitionUpdateView(LoginRequiredMixin, SchemaBuilderPermissionMixin, UpdateView):
     model = CustomFieldDefinition
     form_class = CustomFieldDefinitionForm
     template_name = 'research/custom_field_definition_form.html'
     success_url = reverse_lazy('custom-field-definition-list')
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        form.fields['group'].queryset = CustomFieldGroup.objects.filter(research_database=active_database).order_by('order', 'name')
+        return form
 
     def get_queryset(self):
         active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
         return CustomFieldDefinition.objects.filter(research_database=active_database)
 
 
-class CustomFieldDefinitionDeleteView(LoginRequiredMixin, EditorRequiredMixin, DeleteView):
+class CustomFieldDefinitionDeleteView(LoginRequiredMixin, SchemaBuilderPermissionMixin, DeleteView):
     model = CustomFieldDefinition
     template_name = 'research/custom_field_definition_confirm_delete.html'
     success_url = reverse_lazy('custom-field-definition-list')
@@ -667,8 +696,108 @@ class CustomFieldDefinitionDeleteView(LoginRequiredMixin, EditorRequiredMixin, D
         return CustomFieldDefinition.objects.filter(research_database=active_database)
 
 
+class CustomFieldGroupCreateView(LoginRequiredMixin, SchemaBuilderPermissionMixin, CreateView):
+    model = CustomFieldGroup
+    form_class = CustomFieldGroupForm
+    template_name = 'research/custom_field_group_form.html'
+    success_url = reverse_lazy('custom-field-definition-list')
+
+    def form_valid(self, form):
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        form.instance.research_database = active_database
+        form.instance.organization = active_database.organization
+        form.instance.created_by = self.request.user
+        return super().form_valid(form)
+
+
+class CustomFieldDefinitionReorderView(LoginRequiredMixin, SchemaBuilderPermissionMixin, View):
+    def post(self, request, *args, **kwargs):
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        try:
+            payload = json.loads(request.body.decode('utf-8'))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return HttpResponseBadRequest('Invalid JSON payload.')
+
+        ordering = payload.get('ordering', [])
+        for item in ordering:
+            field_id = item.get('id')
+            order = item.get('order', 0)
+            group_id = item.get('group_id')
+            CustomFieldDefinition.objects.filter(pk=field_id, research_database=active_database).update(order=order, group_id=group_id)
+        return HttpResponse(status=204)
+
+
+class ConditionalLogicEvaluateView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def post(self, request, *args, **kwargs):
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        try:
+            payload = json.loads(request.body.decode('utf-8'))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return HttpResponseBadRequest('Invalid JSON payload.')
+
+        field_key = payload.get('field_key')
+        values = payload.get('values') or {}
+        definition = get_object_or_404(CustomFieldDefinition, research_database=active_database, key=field_key)
+        result = evaluate_condition_logic(definition.conditional_logic, values)
+        return HttpResponse(json.dumps({'visible': result}), content_type='application/json')
+
+
+class CustomFieldDefinitionAPIView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def get(self, request, *args, **kwargs):
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        data = []
+        for definition in CustomFieldDefinition.objects.filter(research_database=active_database).select_related('group').order_by('group__order', 'order', 'id'):
+            data.append({
+                'id': definition.id,
+                'label': definition.label,
+                'key': definition.key,
+                'type': definition.field_type,
+                'choices': definition.parsed_choices(),
+                'group': definition.group.name if definition.group_id else None,
+                'order': definition.order,
+                'help_text': definition.help_text,
+                'validation_rules': definition.validation_rules,
+                'conditional_logic': definition.conditional_logic,
+                'visible_to_roles': definition.visible_to_roles,
+                'editable_to_roles': definition.editable_to_roles,
+                'is_unique': definition.is_unique,
+                'related_model': definition.related_model,
+            })
+        return HttpResponse(json.dumps({'results': data}), content_type='application/json')
+
+
+
 def _saved_view_queryset_for_user(database, user):
     return SavedView.objects.filter(research_database=database).filter(Q(is_shared=True) | Q(created_by=user))
+
+
+
+
+class ForeignKeyChoiceSearchView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'view'
+
+    def get(self, request, *args, **kwargs):
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        related_model = request.GET.get('model')
+        query = (request.GET.get('q') or '').strip()
+        model_map = {
+            CustomFieldDefinition.RelatedModel.ORGANISM: (Organism, 'name'),
+            CustomFieldDefinition.RelatedModel.PLASMID: (Plasmid, 'name'),
+            CustomFieldDefinition.RelatedModel.LOCATION: (Location, 'building'),
+        }
+        model_data = model_map.get(related_model)
+        if not model_data:
+            return HttpResponse(json.dumps({'results': []}), content_type='application/json')
+        model, search_field = model_data
+        qs = model.objects.filter(research_database=active_database)
+        if query:
+            qs = qs.filter(**{f'{search_field}__icontains': query})
+        results = [{'id': obj.id, 'text': str(obj)} for obj in qs[:50]]
+        return HttpResponse(json.dumps({'results': results}), content_type='application/json')
 
 
 class CreateSavedViewView(LoginRequiredMixin, DatabasePermissionMixin, View):
