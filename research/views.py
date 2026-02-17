@@ -1,15 +1,20 @@
-from datetime import date
+import json
+from datetime import date, timedelta
+
+from django.core.cache import cache
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Case, CharField, Count, F, Max, Q, Value, When
+from django.db.models.functions import Cast, Coalesce, TruncMonth
 from django.http import FileResponse, Http404, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
+from django.utils import timezone
 
 from .forms import (
     BulkEditStrainsForm,
@@ -82,20 +87,140 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
     template_name = 'research/dashboard.html'
     required_permission = 'view'
 
+    def _build_dashboard_metrics(self, active_database):
+        now = timezone.now()
+        thirty_days_ago = now - timedelta(days=30)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        month_boundaries = []
+        current = month_start
+        for _ in range(12):
+            month_boundaries.append(current)
+            current = (current - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_boundaries.reverse()
+
+        strains_qs = Strain.objects.filter(research_database=active_database, is_active=True)
+        totals = strains_qs.aggregate(
+            total_strains=Count('id'),
+            total_archived=Count('id', filter=Q(is_archived=True) | Q(status=Strain.Status.ARCHIVED)),
+            strains_added_last_30_days=Count('id', filter=Q(created_at__gte=thirty_days_ago)),
+        )
+
+        most_common_organisms = list(
+            strains_qs.values('organism__name')
+            .annotate(total=Count('id'))
+            .order_by('-total', 'organism__name')[:7]
+        )
+
+        most_common_locations = list(
+            strains_qs.values('location__building', 'location__room', 'location__freezer', 'location__box', 'location__position')
+            .annotate(total=Count('id'))
+            .order_by('-total', 'location__building', 'location__room', 'location__freezer')[:7]
+        )
+
+        monthly_counts = {
+            item['month'].date().isoformat(): item['total']
+            for item in strains_qs.filter(created_at__gte=month_boundaries[0])
+            .annotate(month=TruncMonth('created_at'))
+            .values('month')
+            .annotate(total=Count('id'))
+            .order_by('month')
+        }
+        strains_by_month = [
+            {
+                'month': boundary.strftime('%b %Y'),
+                'total': monthly_counts.get(boundary.date().isoformat(), 0),
+            }
+            for boundary in month_boundaries
+        ]
+
+        choice_label = Case(
+            When(field_definition__field_type=CustomFieldDefinition.FieldType.CHOICE, then=F('value_choice')),
+            When(field_definition__field_type=CustomFieldDefinition.FieldType.TEXT, then=F('value_text')),
+            When(field_definition__field_type=CustomFieldDefinition.FieldType.NUMBER, then=Cast('value_number', output_field=CharField())),
+            When(field_definition__field_type=CustomFieldDefinition.FieldType.DATE, then=Cast('value_date', output_field=CharField())),
+            When(
+                field_definition__field_type=CustomFieldDefinition.FieldType.BOOLEAN,
+                then=Case(
+                    When(value_boolean=True, then=Value('Yes')),
+                    When(value_boolean=False, then=Value('No')),
+                    default=Value(''),
+                    output_field=CharField(),
+                ),
+            ),
+            default=Value(''),
+            output_field=CharField(),
+        )
+
+        top_custom_field_value_counts = list(
+            CustomFieldValue.objects.filter(
+                strain__research_database=active_database,
+                strain__is_active=True,
+            )
+            .annotate(display_value=Coalesce(choice_label, Value('')))
+            .exclude(display_value='')
+            .values('field_definition__name', 'display_value')
+            .annotate(total=Count('id'))
+            .order_by('-total', 'field_definition__name', 'display_value')[:10]
+        )
+
+        for location in most_common_locations:
+            location['label'] = ' / '.join(
+                [
+                    location['location__building'],
+                    location['location__room'],
+                    location['location__freezer'],
+                    location['location__box'],
+                    location['location__position'],
+                ]
+            )
+
+        return {
+            'total_strains': totals['total_strains'],
+            'total_archived': totals['total_archived'],
+            'strains_added_last_30_days': totals['strains_added_last_30_days'],
+            'most_common_organisms': most_common_organisms,
+            'most_common_locations': most_common_locations,
+            'strains_by_month': strains_by_month,
+            'top_custom_field_value_counts': top_custom_field_value_counts,
+        }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         active_database = self.get_active_database()
-        strains = Strain.objects.filter(research_database=active_database, is_active=True)
-        organisms = Organism.objects.filter(research_database=active_database)
-        plasmids = Plasmid.objects.filter(research_database=active_database)
 
-        context['strain_count'] = strains.count()
-        context['organism_count'] = organisms.count()
-        context['plasmid_count'] = plasmids.count()
-        context['pending_count'] = strains.filter(status=Strain.Status.PENDING).count()
-        context['approved_count'] = strains.filter(status=Strain.Status.APPROVED).count()
-        context['archived_count'] = strains.filter(status=Strain.Status.ARCHIVED).count()
-        context['recent_organisms'] = organisms.annotate(total=Count('strains')).order_by('-total')[:5]
+        latest_strain_update = Strain.objects.filter(research_database=active_database, is_active=True).aggregate(
+            latest=Max('updated_at')
+        )['latest']
+        latest_token = int(latest_strain_update.timestamp()) if latest_strain_update else 0
+        cache_key = f'dashboard-metrics:{active_database.id}:{latest_token}'
+        metrics = cache.get(cache_key)
+        if metrics is None:
+            metrics = self._build_dashboard_metrics(active_database)
+            cache.set(cache_key, metrics, 300)
+
+        context.update(metrics)
+        context['has_strains'] = metrics['total_strains'] > 0
+        context['organism_chart_data'] = json.dumps(
+            {
+                'labels': [item['organism__name'] for item in metrics['most_common_organisms']],
+                'counts': [item['total'] for item in metrics['most_common_organisms']],
+            }
+        )
+        context['location_chart_data'] = json.dumps(
+            {
+                'labels': [item['label'] for item in metrics['most_common_locations']],
+                'counts': [item['total'] for item in metrics['most_common_locations']],
+            }
+        )
+        context['strains_by_month_chart_data'] = json.dumps(
+            {
+                'labels': [item['month'] for item in metrics['strains_by_month']],
+                'counts': [item['total'] for item in metrics['strains_by_month']],
+            }
+        )
+        context['strain_count'] = metrics['total_strains']
+        context['archived_count'] = metrics['total_archived']
         context['can_edit'] = active_database.can_edit(self.request.user)
         context['can_manage_members'] = active_database.can_manage_members(self.request.user)
         context['saved_views'] = SavedView.objects.filter(research_database=active_database).filter(
