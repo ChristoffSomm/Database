@@ -51,7 +51,6 @@ from .views import (
     HardDeleteStrainView,
     SwitchDatabaseView,
     switch_database,
-    toggle_theme,
 )
 
 urlpatterns = [
@@ -93,7 +92,6 @@ urlpatterns = [
     path('api/custom-fields/evaluate/', ConditionalLogicEvaluateView.as_view(), name='conditional-logic-evaluate'),
     path('api/custom-fields/foreign-key-search/', ForeignKeyChoiceSearchView.as_view(), name='custom-field-foreign-key-search'),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
-    path('toggle-theme/', toggle_theme, name='toggle-theme'),
     path('activity/', ActivityFeedView.as_view(), name='activity-feed'),
     path('search/', SearchResultsView.as_view(), name='search-results'),
     path('saved-views/create/', CreateSavedViewView.as_view(), name='saved-view-create'),

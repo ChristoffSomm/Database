@@ -32,8 +32,3 @@ def current_database_context(request):
         'active_organization': active_organization,
     }
 
-
-def theme_context(request):
-    return {
-        'theme': getattr(request, 'theme', 'light'),
-    }
