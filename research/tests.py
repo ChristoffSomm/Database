@@ -1,9 +1,21 @@
+from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
+from django.utils import timezone
 from django.urls import reverse
 
 from .helpers import SESSION_DATABASE_KEY
-from .models import AuditLog, DatabaseMembership, Location, Organism, ResearchDatabase, Strain, StrainAttachment
+from .models import (
+    AuditLog,
+    CustomFieldDefinition,
+    CustomFieldValue,
+    DatabaseMembership,
+    Location,
+    Organism,
+    ResearchDatabase,
+    Strain,
+    StrainAttachment,
+)
 
 User = get_user_model()
 
@@ -497,3 +509,110 @@ class StrainAttachmentViewTests(TestCase):
             reverse('strain-attachment-download', kwargs={'pk': self.strain.pk, 'attachment_pk': attachment.pk})
         )
         self.assertEqual(denied.status_code, 404)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class DashboardAnalyticsTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='dashboard-user', password='pass123')
+        self.database = ResearchDatabase.objects.create(name='Analytics DB', created_by=self.user)
+        DatabaseMembership.objects.update_or_create(
+            user=self.user,
+            research_database=self.database,
+            defaults={'role': DatabaseMembership.Role.VIEWER},
+        )
+
+        self.organism_a = Organism.objects.create(research_database=self.database, name='E. coli')
+        self.organism_b = Organism.objects.create(research_database=self.database, name='S. cerevisiae')
+
+        self.location_a = Location.objects.create(
+            research_database=self.database,
+            building='A',
+            room='R1',
+            freezer='F1',
+            box='B1',
+            position='P1',
+        )
+        self.location_b = Location.objects.create(
+            research_database=self.database,
+            building='B',
+            room='R2',
+            freezer='F2',
+            box='B2',
+            position='P2',
+        )
+
+        self.choice_field = CustomFieldDefinition.objects.create(
+            research_database=self.database,
+            name='Resistance',
+            field_type=CustomFieldDefinition.FieldType.CHOICE,
+            choices='Amp,Kan',
+            created_by=self.user,
+        )
+
+    def _set_active_database(self):
+        session = self.client.session
+        session[SESSION_DATABASE_KEY] = self.database.id
+        session.save()
+
+    def test_dashboard_metrics_and_chart_payloads_render(self):
+        strain_one = Strain.objects.create(
+            research_database=self.database,
+            strain_id='D-001',
+            name='Dash One',
+            organism=self.organism_a,
+            genotype='WT',
+            location=self.location_a,
+            status=Strain.Status.ARCHIVED,
+            is_archived=True,
+            created_by=self.user,
+        )
+        strain_two = Strain.objects.create(
+            research_database=self.database,
+            strain_id='D-002',
+            name='Dash Two',
+            organism=self.organism_a,
+            genotype='WT',
+            location=self.location_b,
+            created_by=self.user,
+        )
+        strain_three = Strain.objects.create(
+            research_database=self.database,
+            strain_id='D-003',
+            name='Dash Three',
+            organism=self.organism_b,
+            genotype='MUT',
+            location=self.location_b,
+            created_by=self.user,
+        )
+        Strain.objects.filter(id=strain_three.id).update(created_at=timezone.now() - timedelta(days=90))
+
+        CustomFieldValue.objects.create(strain=strain_one, field_definition=self.choice_field, value_choice='Amp')
+        CustomFieldValue.objects.create(strain=strain_two, field_definition=self.choice_field, value_choice='Amp')
+
+        self.client.force_login(self.user)
+        self._set_active_database()
+
+        response = self.client.get(reverse('dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['total_strains'], 3)
+        self.assertEqual(response.context['total_archived'], 1)
+        self.assertEqual(response.context['strains_added_last_30_days'], 2)
+        self.assertTrue(response.context['has_strains'])
+        self.assertContains(response, 'organism-chart-data')
+        self.assertContains(response, 'location-chart-data')
+        self.assertContains(response, 'monthly-chart-data')
+        self.assertContains(response, 'Resistance')
+
+    def test_dashboard_empty_state_when_no_strains(self):
+        self.client.force_login(self.user)
+        self._set_active_database()
+
+        response = self.client.get(reverse('dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['total_strains'], 0)
+        self.assertFalse(response.context['has_strains'])
+        self.assertContains(response, 'No strain data yet')
