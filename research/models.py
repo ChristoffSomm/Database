@@ -12,14 +12,13 @@ User = get_user_model()
 
 class UserProfile(models.Model):
     class ThemePreference(models.TextChoices):
-        LIGHT = 'light', 'Light'
         DARK = 'dark', 'Dark'
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     theme_preference = models.CharField(
         max_length=10,
         choices=ThemePreference.choices,
-        default=ThemePreference.LIGHT,
+        default=ThemePreference.DARK,
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

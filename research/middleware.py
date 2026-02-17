@@ -9,7 +9,7 @@ from .helpers import (
     get_active_organization,
     set_current_user,
 )
-from .models import DatabaseMembership, OrganizationMembership, UserProfile
+from .models import DatabaseMembership, OrganizationMembership
 
 
 class LoginRequiredMiddleware:
@@ -119,19 +119,3 @@ class ActiveDatabaseMiddleware:
 
 
 CurrentDatabaseMiddleware = ActiveDatabaseMiddleware
-
-
-class ThemeMiddleware:
-    """Attach the current theme preference to the request."""
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        request.theme = UserProfile.ThemePreference.LIGHT
-
-        if request.user.is_authenticated:
-            profile, _ = UserProfile.objects.get_or_create(user=request.user)
-            request.theme = profile.theme_preference
-
-        return self.get_response(request)

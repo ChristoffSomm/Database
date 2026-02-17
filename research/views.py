@@ -556,17 +556,6 @@ def switch_database(request, database_id):
     return redirect(next_url)
 
 
-@login_required
-def toggle_theme(request):
-    profile, _ = UserProfile.objects.get_or_create(user=request.user)
-    profile.theme_preference = (
-        UserProfile.ThemePreference.DARK
-        if profile.theme_preference == UserProfile.ThemePreference.LIGHT
-        else UserProfile.ThemePreference.LIGHT
-    )
-    profile.save(update_fields=['theme_preference'])
-    return redirect(request.META.get('HTTP_REFERER') or reverse('dashboard'))
-
 
 class SwitchDatabaseView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
