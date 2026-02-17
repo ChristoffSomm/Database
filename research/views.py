@@ -26,7 +26,7 @@ from .forms import (
     StrainForm,
 )
 from .filtering import apply_filters
-from .helpers import SESSION_DATABASE_KEY, get_active_database, get_custom_field_definitions, get_custom_field_values
+from .helpers import SESSION_DATABASE_KEY, format_action, get_active_database, get_custom_field_definitions, get_custom_field_values
 from .import_utils import (
     STANDARD_IMPORT_FIELDS,
     build_mapped_rows,
@@ -230,6 +230,7 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
         context['saved_views'] = SavedView.objects.filter(research_database=active_database).filter(
             Q(is_shared=True) | Q(created_by=self.request.user)
         ).select_related('created_by').order_by('name')
+        context['recent_activity'] = AuditLog.objects.filter(database=active_database).select_related('user').order_by('-timestamp')[:10]
         return context
 
 
@@ -674,10 +675,12 @@ class BulkEditStrainsView(LoginRequiredMixin, EditorRequiredMixin, CurrentDataba
                 return HttpResponseBadRequest('Only database owners/admins can bulk delete.')
             count = selected_strains.update(is_active=False)
             AuditLog.objects.create(
+                database=active_database,
                 user=request.user,
-                action='bulk_delete',
-                record_type='Strain',
-                record_id=','.join(str(sid) for sid in selected_strains.values_list('id', flat=True)),
+                action='delete',
+                object_type='Strain',
+                object_id=None,
+                metadata={'strain_ids': list(selected_strains.values_list('id', flat=True))},
             )
             messages.success(request, f'{count} strains deleted successfully.')
             return HttpResponseRedirect(reverse('strain-list'))
@@ -688,11 +691,12 @@ class BulkEditStrainsView(LoginRequiredMixin, EditorRequiredMixin, CurrentDataba
                 for strain in selected_strains:
                     strain.archive(request.user)
             AuditLog.objects.create(
+                database=active_database,
                 user=request.user,
-                action='bulk_archive',
-                record_type='Strain',
-                record_id=','.join(str(sid) for sid in selected_ids),
-                metadata={'count': len(selected_ids), 'database_id': active_database.id},
+                action='archive',
+                object_type='Strain',
+                object_id=None,
+                metadata={'count': len(selected_ids), 'database_id': active_database.id, 'strain_ids': selected_ids},
             )
             messages.success(request, f'{len(selected_ids)} strains archived successfully.')
             return HttpResponseRedirect(reverse('strain-list'))
@@ -743,10 +747,12 @@ class BulkEditStrainsView(LoginRequiredMixin, EditorRequiredMixin, CurrentDataba
 
                 updated_field_names = list(updated_fields.keys()) + [f'custom:{d.name}' for d in updated_custom_fields.keys()]
                 AuditLog.objects.create(
+                    database=active_database,
                     user=request.user,
-                    action='bulk_update',
-                    record_type='Strain',
-                    record_id=','.join(str(sid) for sid in selected_strains.values_list('id', flat=True)),
+                    action='edit',
+                    object_type='Strain',
+                    object_id=None,
+                    metadata={'strain_ids': list(selected_strains.values_list('id', flat=True)), 'fields': updated_field_names},
                 )
                 ActivityLog.objects.create(
                     research_database=active_database,
@@ -904,10 +910,11 @@ class CSVUploadView(LoginRequiredMixin, EditorRequiredMixin, TemplateView):
             )
 
             AuditLog.objects.create(
+                database=active_database,
                 user=request.user,
-                action='csv_import',
-                record_type='Strain',
-                record_id=str(active_database.id),
+                action='import',
+                object_type='Strain',
+                object_id=None,
                 metadata={
                     'rows_created': created_count,
                     'rows_skipped': skipped_count,
@@ -961,7 +968,7 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
         strain = context['strain']
         context['history'] = ActivityLog.objects.filter(
             model_name='Strain',
-            object_id=str(strain.pk),
+            object_id=strain.pk,
             research_database=strain.research_database,
         )[:20]
         active_database = self.get_active_database()
@@ -992,10 +999,11 @@ class UploadStrainAttachmentView(LoginRequiredMixin, EditorRequiredMixin, View):
                 file=uploaded_file,
             )
             AuditLog.objects.create(
+                database=active_database,
                 user=request.user,
-                action='upload_attachment',
-                record_type='StrainAttachment',
-                record_id=str(attachment.pk),
+                action='upload',
+                object_type='StrainAttachment',
+                object_id=attachment.pk,
                 metadata={
                     'strain_id': strain.strain_id,
                     'filename': attachment.file_name,
@@ -1028,10 +1036,11 @@ class DeleteStrainAttachmentView(LoginRequiredMixin, DatabasePermissionMixin, Vi
         attachment.delete()
 
         AuditLog.objects.create(
+            database=active_database,
             user=request.user,
-            action='delete_attachment',
-            record_type='StrainAttachment',
-            record_id=str(kwargs['attachment_pk']),
+            action='delete',
+            object_type='StrainAttachment',
+            object_id=kwargs['attachment_pk'],
             metadata={
                 'strain_id': strain.strain_id,
                 'filename': filename,
@@ -1172,10 +1181,11 @@ class RestoreVersionView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabas
                 custom_value.save()
 
             AuditLog.objects.create(
+                database=active_database,
                 user=request.user,
-                action='restore_version',
-                record_type='Strain',
-                record_id=str(strain.pk),
+                action='restore',
+                object_type='Strain',
+                object_id=strain.pk,
                 metadata={
                     'version_id': version.pk,
                     'strain_id': strain.strain_id,
@@ -1228,10 +1238,11 @@ class ArchiveStrainView(LoginRequiredMixin, EditorRequiredMixin, View):
         strain = get_object_or_404(Strain.all_objects, pk=kwargs['pk'], research_database=active_database, is_active=True)
         strain.archive(request.user)
         AuditLog.objects.create(
+            database=active_database,
             user=request.user,
-            action='archive_strain',
-            record_type='Strain',
-            record_id=str(strain.pk),
+            action='archive',
+            object_type='Strain',
+            object_id=strain.pk,
             metadata={'strain_id': strain.strain_id, 'database_id': active_database.id},
         )
         messages.success(request, f'Strain {strain.strain_id} archived successfully.')
@@ -1244,10 +1255,11 @@ class RestoreStrainView(LoginRequiredMixin, EditorRequiredMixin, View):
         strain = get_object_or_404(Strain.all_objects, pk=kwargs['pk'], research_database=active_database, is_active=True, is_archived=True)
         strain.restore()
         AuditLog.objects.create(
+            database=active_database,
             user=request.user,
-            action='restore_strain',
-            record_type='Strain',
-            record_id=str(strain.pk),
+            action='restore',
+            object_type='Strain',
+            object_id=strain.pk,
             metadata={'strain_id': strain.strain_id, 'database_id': active_database.id},
         )
         messages.success(request, f'Strain {strain.strain_id} restored successfully.')
@@ -1262,10 +1274,11 @@ class HardDeleteStrainView(LoginRequiredMixin, AdminRequiredMixin, View):
         strain_id = strain.strain_id
         strain.delete()
         AuditLog.objects.create(
+            database=active_database,
             user=request.user,
-            action='hard_delete_strain',
-            record_type='Strain',
-            record_id=str(strain_pk),
+            action='delete',
+            object_type='Strain',
+            object_id=strain_pk,
             metadata={'strain_id': strain_id, 'database_id': active_database.id},
         )
         messages.success(request, f'Strain {strain_id} permanently deleted.')
@@ -1369,50 +1382,30 @@ class SearchResultsView(LoginRequiredMixin, DatabasePermissionMixin, TemplateVie
 class ActivityFeedView(LoginRequiredMixin, DatabasePermissionMixin, ListView):
     template_name = 'research/activity_feed.html'
     context_object_name = 'activity_logs'
-    paginate_by = 25
     required_permission = 'view'
+    allowed_actions = {'archive', 'edit', 'upload', 'restore', 'import'}
 
     def get_queryset(self):
-        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
-        queryset = ActivityLog.objects.filter(research_database=active_database).select_related('user', 'research_database')
+        active_database = self.get_active_database()
+        selected_action = (self.request.GET.get('action') or '').strip().lower()
 
-        user_id = self.request.GET.get('user', '').strip()
-        model_name = self.request.GET.get('model_name', '').strip()
-        action = self.request.GET.get('action', '').strip()
-        start_date = self.request.GET.get('start_date', '').strip()
-        end_date = self.request.GET.get('end_date', '').strip()
+        cache_key = f'activity-feed:{active_database.id}:{selected_action or "all"}'
+        logs = cache.get(cache_key)
+        if logs is None:
+            queryset = AuditLog.objects.filter(database=active_database).select_related('user').order_by('-timestamp')
+            if selected_action in self.allowed_actions:
+                queryset = queryset.filter(action=selected_action)
+            logs = list(queryset[:50])
+            cache.set(cache_key, logs, 120)
 
-        if user_id:
-            queryset = queryset.filter(user_id=user_id)
-        if model_name:
-            queryset = queryset.filter(model_name__iexact=model_name)
-        if action:
-            queryset = queryset.filter(action=action)
-        if start_date:
-            queryset = queryset.filter(timestamp__date__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(timestamp__date__lte=end_date)
-
-        return queryset.order_by('-timestamp')
+        for log in logs:
+            if not hasattr(log, 'formatted_action'):
+                log.formatted_action = format_action(log)
+        return logs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
-        context['selected_user'] = self.request.GET.get('user', '').strip()
-        context['selected_model_name'] = self.request.GET.get('model_name', '').strip()
-        context['selected_action'] = self.request.GET.get('action', '').strip()
-        context['selected_start_date'] = self.request.GET.get('start_date', '').strip()
-        context['selected_end_date'] = self.request.GET.get('end_date', '').strip()
-        context['users'] = (
-            DatabaseMembership.objects.filter(research_database=active_database)
-            .select_related('user')
-            .order_by('user__username')
-        )
-        context['actions'] = ActivityLog.Action.choices
-        context['model_names'] = (
-            ActivityLog.objects.filter(research_database=active_database)
-            .order_by('model_name')
-            .values_list('model_name', flat=True)
-            .distinct()
-        )
+        selected_action = (self.request.GET.get('action') or '').strip().lower()
+        context['selected_action'] = selected_action if selected_action in self.allowed_actions else ''
+        context['action_options'] = sorted(self.allowed_actions)
         return context

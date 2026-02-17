@@ -444,7 +444,7 @@ class StrainAttachmentViewTests(TestCase):
         self.assertRedirects(response, reverse('strain-detail', kwargs={'pk': self.strain.pk}))
         self.assertEqual(StrainAttachment.objects.filter(strain=self.strain).count(), 2)
         self.assertTrue(
-            AuditLog.objects.filter(action='upload_attachment', record_type='StrainAttachment', metadata__strain_id='ATT-001').exists()
+            AuditLog.objects.filter(action='upload', object_type='StrainAttachment', metadata__strain_id='ATT-001').exists()
         )
 
     def test_viewer_cannot_upload_attachments(self):
@@ -481,7 +481,7 @@ class StrainAttachmentViewTests(TestCase):
         )
         self.assertRedirects(allowed, reverse('strain-detail', kwargs={'pk': self.strain.pk}))
         self.assertFalse(StrainAttachment.objects.filter(pk=attachment.pk).exists())
-        self.assertTrue(AuditLog.objects.filter(action='delete_attachment', record_type='StrainAttachment').exists())
+        self.assertTrue(AuditLog.objects.filter(action='delete', object_type='StrainAttachment').exists())
 
     def test_download_requires_matching_database(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -671,8 +671,8 @@ class StrainArchiveWorkflowTests(TestCase):
         self.assertFalse(self.strain.is_archived)
         self.assertIsNone(self.strain.archived_by)
 
-        self.assertTrue(AuditLog.objects.filter(action='archive_strain', record_id=str(self.strain.pk)).exists())
-        self.assertTrue(AuditLog.objects.filter(action='restore_strain', record_id=str(self.strain.pk)).exists())
+        self.assertTrue(AuditLog.objects.filter(action='archive', object_id=self.strain.pk).exists())
+        self.assertTrue(AuditLog.objects.filter(action='restore', object_id=self.strain.pk).exists())
 
     def test_admin_can_hard_delete_strain(self):
         self.client.force_login(self.admin)
@@ -681,7 +681,7 @@ class StrainArchiveWorkflowTests(TestCase):
         response = self.client.post(reverse('strain-hard-delete', kwargs={'pk': self.strain.pk}))
         self.assertRedirects(response, reverse('strain-list'))
         self.assertFalse(Strain.all_objects.filter(pk=self.strain.pk).exists())
-        self.assertTrue(AuditLog.objects.filter(action='hard_delete_strain').exists())
+        self.assertTrue(AuditLog.objects.filter(action='delete').exists())
 
     def test_editor_cannot_hard_delete_strain(self):
         self.client.force_login(self.editor)

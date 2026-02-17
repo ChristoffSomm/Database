@@ -409,15 +409,21 @@ class ActivityLog(models.Model):
 
 
 class AuditLog(models.Model):
+    database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='audit_logs', null=True, blank=True)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     action = models.CharField(max_length=120)
-    record_type = models.CharField(max_length=120)
-    record_id = models.CharField(max_length=120)
+    object_type = models.CharField(max_length=120, default='')
+    object_id = models.IntegerField(null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['database', 'timestamp']),
+            models.Index(fields=['database', 'action']),
+            models.Index(fields=['database', 'object_type', 'object_id']),
+        ]
 
     def __str__(self):
-        return f'{self.timestamp.isoformat()} | {self.user} | {self.action}'
+        return f'{self.timestamp.isoformat()} | {self.user} | {self.action} | {self.object_type}:{self.object_id}'

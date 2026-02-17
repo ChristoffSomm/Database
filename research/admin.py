@@ -152,6 +152,6 @@ class ActivityLogAdmin(admin.ModelAdmin):
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    list_display = ('timestamp', 'user', 'action', 'record_type', 'record_id')
-    search_fields = ('action', 'record_type', 'record_id', 'user__username')
+    list_display = ('timestamp', 'database', 'user', 'action', 'object_type', 'object_id')
+    search_fields = ('action', 'object_type', 'object_id', 'user__username')
     readonly_fields = ('timestamp',)
