@@ -3,7 +3,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from .helpers import SESSION_DATABASE_KEY
-from .models import ActivityLog, DatabaseMembership, Location, Organism, ResearchDatabase, Strain
+from .models import ActivityLog, AuditLog, DatabaseMembership, Location, Organism, ResearchDatabase, Strain
 
 User = get_user_model()
 
@@ -106,6 +106,59 @@ class ActivityLoggingTests(TestCase):
         response = self.client.get(reverse('activity-feed'))
         self.assertEqual(response.status_code, 200)
         self.assertTrue(all(log.research_database_id == self.database.id for log in response.context['activity_logs']))
+
+
+    def test_activity_feed_uses_audit_logs_for_active_database(self):
+        self.client.force_login(self.user)
+        self._set_active_database()
+
+        AuditLog.objects.create(
+            database=self.database,
+            user=self.user,
+            action='archive',
+            object_type='Strain',
+            object_id=1,
+            metadata={'strain_id': 'S-001'},
+        )
+        AuditLog.objects.create(
+            database=self.other_database,
+            user=self.user,
+            action='archive',
+            object_type='Strain',
+            object_id=2,
+            metadata={'strain_id': 'S-999'},
+        )
+
+        response = self.client.get(reverse('activity-feed'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['activity_logs']), 1)
+        self.assertEqual(response.context['activity_logs'][0].database_id, self.database.id)
+
+    def test_activity_feed_action_filter(self):
+        self.client.force_login(self.user)
+        self._set_active_database()
+
+        AuditLog.objects.create(
+            database=self.database,
+            user=self.user,
+            action='archive',
+            object_type='Strain',
+            object_id=1,
+            metadata={'strain_id': 'S-001'},
+        )
+        AuditLog.objects.create(
+            database=self.database,
+            user=self.user,
+            action='upload',
+            object_type='StrainAttachment',
+            object_id=3,
+            metadata={'filename': 'map.png'},
+        )
+
+        response = self.client.get(reverse('activity-feed'), {'action': 'upload'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['activity_logs']), 1)
+        self.assertEqual(response.context['activity_logs'][0].action, 'upload')
 
     def test_activity_feed_permissions_enforced(self):
         outsider = User.objects.create_user(username='outsider', password='pass123')

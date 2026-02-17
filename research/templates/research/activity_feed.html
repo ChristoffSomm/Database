@@ -3,73 +3,47 @@
 {% block header_title %}Activity Feed{% endblock %}
 {% block content %}
 <div class="space-y-6">
-  <div>
-    <h2 class="text-2xl font-bold">Recent Activity</h2>
-    <p class="text-sm text-slate-400">Track create, update, and delete operations across the active research database.</p>
+  <div class="flex items-end justify-between">
+    <div>
+      <h2 class="text-2xl font-bold text-slate-100">Recent Activity</h2>
+      <p class="text-sm text-slate-400">The latest 50 actions in this database.</p>
+    </div>
+    <a href="{% url 'dashboard' %}" class="rounded-md border border-slate-600 px-3 py-2 text-sm hover:bg-slate-700">Back to Dashboard</a>
   </div>
 
-  <form method="get" class="grid gap-3 rounded-lg border border-slate-700 bg-slate-800 p-4 md:grid-cols-3">
-    <select name="user" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
-      <option value="">All users</option>
-      {% for membership in users %}
-        <option value="{{ membership.user_id }}" {% if selected_user == membership.user_id|stringformat:'s' %}selected{% endif %}>{{ membership.user.username }}</option>
-      {% endfor %}
-    </select>
-
-    <select name="model_name" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
-      <option value="">All models</option>
-      {% for name in model_names %}
-        <option value="{{ name }}" {% if selected_model_name == name %}selected{% endif %}>{{ name }}</option>
-      {% endfor %}
-    </select>
-
-    <select name="action" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
-      <option value="">All actions</option>
-      {% for value, label in actions %}
-        <option value="{{ value }}" {% if selected_action == value %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-
-    <input type="date" name="start_date" value="{{ selected_start_date }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
-    <input type="date" name="end_date" value="{{ selected_end_date }}" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm">
-    <button type="submit" class="rounded-md bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600">Apply Filters</button>
+  <form method="get" class="flex flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 p-4">
+    <span class="text-sm text-slate-300">Filter by action:</span>
+    <a href="{% url 'activity-feed' %}" class="rounded-md px-3 py-1.5 text-sm {% if not selected_action %}bg-primary font-semibold text-black{% else %}bg-slate-700 text-slate-200 hover:bg-slate-600{% endif %}">All</a>
+    {% for action in action_options %}
+      <a href="{% url 'activity-feed' %}?action={{ action }}" class="rounded-md px-3 py-1.5 text-sm {% if selected_action == action %}bg-primary font-semibold text-black{% else %}bg-slate-700 text-slate-200 hover:bg-slate-600{% endif %}">{{ action|title }}</a>
+    {% endfor %}
   </form>
 
-  <div class="space-y-4">
-    {% regroup activity_logs by timestamp.date as grouped_logs %}
-    {% for group in grouped_logs %}
-      <section class="rounded-lg border border-slate-700 bg-slate-800">
-        <div class="border-b border-slate-700 px-4 py-3 text-sm font-semibold text-slate-200">{{ group.grouper }}</div>
-        <ul class="divide-y divide-slate-700">
-          {% for log in group.list %}
-            <li class="px-4 py-3">
-              <p class="text-sm text-slate-100">
-                {{ log.summary }}
-              </p>
-              <p class="mt-1 text-xs text-slate-400">
-                {{ log.timestamp|time:'H:i:s' }} · {{ log.model_name }} #{{ log.object_id }} · {{ log.action|title }}
-              </p>
-            </li>
-          {% endfor %}
-        </ul>
-      </section>
+  <div class="space-y-3">
+    {% for log in activity_logs %}
+      <article class="rounded-xl border border-slate-700 bg-slate-800 p-4 transition hover:border-slate-500 hover:bg-slate-700">
+        <div class="flex items-start gap-3">
+          <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm font-semibold text-slate-100">
+            {% if log.user %}
+              {{ log.user.username|slice:":1"|upper }}
+            {% else %}
+              S
+            {% endif %}
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm text-slate-100">
+              {{ log.formatted_action }}
+              {% if log.object_id %}
+                <span class="text-primary">#{{ log.object_id }}</span>
+              {% endif %}
+            </p>
+            <p class="mt-1 text-xs text-slate-400">{{ log.timestamp|timesince }} ago</p>
+          </div>
+        </div>
+      </article>
     {% empty %}
-      <div class="rounded-lg border border-slate-700 bg-slate-800 px-4 py-6 text-sm text-slate-400">No activity found for the selected filters.</div>
+      <div class="rounded-lg border border-slate-700 bg-slate-800 px-4 py-6 text-sm text-slate-400">No activity found for this filter.</div>
     {% endfor %}
   </div>
-
-  {% if is_paginated %}
-    <div class="flex items-center justify-between">
-      <span class="text-sm text-slate-400">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-      <div class="flex gap-2">
-        {% if page_obj.has_previous %}
-          <a href="?user={{ selected_user }}&model_name={{ selected_model_name }}&action={{ selected_action }}&start_date={{ selected_start_date }}&end_date={{ selected_end_date }}&page={{ page_obj.previous_page_number }}" class="rounded-md border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-700">Previous</a>
-        {% endif %}
-        {% if page_obj.has_next %}
-          <a href="?user={{ selected_user }}&model_name={{ selected_model_name }}&action={{ selected_action }}&start_date={{ selected_start_date }}&end_date={{ selected_end_date }}&page={{ page_obj.next_page_number }}" class="rounded-md border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-700">Next</a>
-        {% endif %}
-      </div>
-    </div>
-  {% endif %}
 </div>
 {% endblock %}

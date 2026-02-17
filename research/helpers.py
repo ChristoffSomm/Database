@@ -190,6 +190,33 @@ def log_activity(request, instance, action, changes):
     )
 
 
+def format_action(log):
+    user_name = 'System'
+    if getattr(log, 'user', None):
+        user_name = getattr(log.user, 'get_full_name', lambda: '')().strip() or log.user.username
+
+    action = (log.action or '').strip().lower()
+    action_map = {
+        'archive': 'archived',
+        'edit': 'edited',
+        'upload': 'uploaded',
+        'restore': 'restored',
+        'import': 'imported',
+        'delete': 'deleted',
+    }
+    action_label = action_map.get(action, action or 'updated')
+
+    metadata = log.metadata or {}
+    linked_name = metadata.get('strain_id') or metadata.get('filename') or metadata.get('name')
+    object_label = (log.object_type or 'record').lower()
+
+    if linked_name:
+        return f'{user_name} {action_label} {object_label} {linked_name}'
+    if log.object_id:
+        return f'{user_name} {action_label} {object_label} #{log.object_id}'
+    return f'{user_name} {action_label} {object_label}'
+
+
 def get_instance_snapshot(instance):
     """Capture model state as a dict for change comparison in signal handlers."""
 
