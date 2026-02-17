@@ -44,6 +44,7 @@ from .views import (
     HardDeleteStrainView,
     SwitchDatabaseView,
     switch_database,
+    toggle_theme,
 )
 
 urlpatterns = [
@@ -78,6 +79,7 @@ urlpatterns = [
     path('custom-fields/<int:pk>/update/', CustomFieldDefinitionUpdateView.as_view(), name='custom-field-definition-update'),
     path('custom-fields/<int:pk>/delete/', CustomFieldDefinitionDeleteView.as_view(), name='custom-field-definition-delete'),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
+    path('toggle-theme/', toggle_theme, name='toggle-theme'),
     path('activity/', ActivityFeedView.as_view(), name='activity-feed'),
     path('search/', SearchResultsView.as_view(), name='search-results'),
     path('saved-views/create/', CreateSavedViewView.as_view(), name='saved-view-create'),

@@ -9,6 +9,26 @@ from django.utils import timezone
 User = get_user_model()
 
 
+class UserProfile(models.Model):
+    class ThemePreference(models.TextChoices):
+        LIGHT = 'light', 'Light'
+        DARK = 'dark', 'Dark'
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    theme_preference = models.CharField(
+        max_length=10,
+        choices=ThemePreference.choices,
+        default=ThemePreference.LIGHT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['user__username']
+
+    def __str__(self):
+        return f'{self.user.username} profile'
+
+
 class Organization(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, unique=True)
