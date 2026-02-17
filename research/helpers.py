@@ -12,6 +12,7 @@ from .models import (
     DatabaseMembership,
     OrganizationMembership,
     ResearchDatabase,
+    Strain,
 )
 
 SESSION_DATABASE_KEY = 'active_database_id'
@@ -176,6 +177,18 @@ def get_custom_field_definitions(research_database):
     if research_database is None:
         return CustomFieldDefinition.objects.none()
     return CustomFieldDefinition.objects.filter(research_database=research_database).select_related('group').order_by('group__order', 'order', 'id')
+
+
+def get_next_strain_id(database):
+    if database is None:
+        return ''
+    return Strain.get_next_strain_id(database)
+
+
+def get_next_location(database):
+    if database is None:
+        return ''
+    return Strain.get_next_location(database)
 
 
 def get_custom_field_values(strain):

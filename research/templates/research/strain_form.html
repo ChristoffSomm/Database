@@ -4,18 +4,29 @@
 {% block content %}
 <div class="mx-auto max-w-5xl rounded-lg border border-slate-700 bg-slate-800 p-6">
   <h2 class="mb-6 text-xl font-semibold">{% if object %}Edit {{ object.strain_id }}{% else %}Create New Strain{% endif %}</h2>
-  <form method="post" enctype="multipart/form-data" class="space-y-6">
+  <form method="post" enctype="multipart/form-data" class="space-y-6" id="strain-form" data-next-strain-url="{% url 'next-strain-info-api' %}">
     {% csrf_token %}
     {% if form.non_field_errors %}
       <div class="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">{{ form.non_field_errors }}</div>
     {% endif %}
 
-    <div class="rounded-lg border border-slate-700 p-4">
-      <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Core Fields</h3>
-      <div class="grid gap-4 md:grid-cols-2">
+    <div class="rounded-lg border border-slate-700 bg-slate-900/30 p-5">
+      <h3 class="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">Core Fields</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label for="{{ form.strain_id.id_for_label }}" class="mb-1 block text-sm font-medium text-slate-300">{{ form.strain_id.label }}</label>
+          {{ form.strain_id }}
+          {% if form.strain_id.errors %}<p class="mt-1 text-xs text-red-300">{{ form.strain_id.errors|join:', ' }}</p>{% endif %}
+        </div>
+        <div>
+          <label for="{{ form.location.id_for_label }}" class="mb-1 block text-sm font-medium text-slate-300">Auto Location</label>
+          {{ form.location }}
+          {% if form.location.errors %}<p class="mt-1 text-xs text-red-300">{{ form.location.errors|join:', ' }}</p>{% endif %}
+        </div>
+
         {% for field in form %}
-          {% if not field.name|slice:':7' == 'custom_' %}
-          <div class="{% if field.name == 'genotype' or field.name == 'plasmids' %}md:col-span-2{% endif %}">
+          {% if not field.name|slice:':7' == 'custom_' and field.name != 'strain_id' and field.name != 'location' %}
+          <div class="{% if field.name == 'comments' %}col-span-1 md:col-span-2{% endif %}">
             <label for="{{ field.id_for_label }}" class="mb-1 block text-sm font-medium text-slate-300">{{ field.label }}{% if field.field.required %}<span class="text-red-400"> *</span>{% endif %}</label>
             {{ field }}
             {% if field.errors %}<p class="mt-1 text-xs text-red-300">{{ field.errors|join:', ' }}</p>{% endif %}
@@ -26,12 +37,12 @@
       </div>
     </div>
 
-    <div class="rounded-lg border border-slate-700 p-4">
-      <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Dynamic Custom Fields</h3>
-      <div class="grid gap-4 md:grid-cols-2">
+    <div class="rounded-lg border border-slate-700 bg-slate-900/30 p-5">
+      <h3 class="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">Dynamic Custom Fields</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         {% for field in form %}
           {% if field.name|slice:':7' == 'custom_' %}
-          <div class="dynamic-custom-field {% if field.field.widget.input_type == 'textarea' %}md:col-span-2{% endif %}">
+          <div class="dynamic-custom-field {% if field.field.widget.input_type == 'textarea' %}col-span-1 md:col-span-2{% endif %}">
             <label for="{{ field.id_for_label }}" class="mb-1 block text-sm font-medium text-slate-300">{{ field.label }}{% if field.field.required %}<span class="text-red-400"> *</span>{% endif %}</label>
             {{ field }}
             {% if field.errors %}<p class="mt-1 text-xs text-red-300">{{ field.errors|join:', ' }}</p>{% endif %}
@@ -42,11 +53,44 @@
       </div>
     </div>
 
-    <div class="flex items-center justify-end gap-3">
+    <div class="flex items-center justify-end gap-3 pt-2">
       <a href="{% url 'strain-list' %}" class="rounded-md border border-slate-600 px-4 py-2 text-sm hover:bg-slate-700">Cancel</a>
       <button type="submit" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">{% if object %}Update Strain{% else %}Create Strain{% endif %}</button>
     </div>
   </form>
 </div>
 <script src="/static/js/conditional_logic.js"></script>
+<script>
+  (function () {
+    const form = document.getElementById('strain-form');
+    if (!form) return;
+
+    const strainInput = form.querySelector('[data-auto-field="strain_id"]');
+    const locationInput = form.querySelector('[data-auto-field="location"]');
+    const endpoint = form.dataset.nextStrainUrl;
+
+    async function refreshNextValues() {
+      if (!endpoint || !strainInput || !locationInput) return;
+      try {
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.next_strain_id) {
+          strainInput.value = data.next_strain_id;
+        }
+        if (data.next_location) {
+          locationInput.value = data.next_location;
+        }
+      } catch (error) {
+        console.warn('Unable to load next strain info.', error);
+      }
+    }
+
+    refreshNextValues();
+    form.addEventListener('input', refreshNextValues);
+  })();
+</script>
 {% endblock %}

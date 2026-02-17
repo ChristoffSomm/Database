@@ -10,7 +10,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Case, CharField, Count, F, Max, Q, Value, When
 from django.db.models.functions import Cast, Coalesce, TruncMonth
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.views import View
@@ -41,6 +41,8 @@ from .helpers import (
     get_active_organization,
     get_custom_field_definitions,
     get_custom_field_values,
+    get_next_location,
+    get_next_strain_id,
 )
 from .import_utils import (
     STANDARD_IMPORT_FIELDS,
@@ -1598,10 +1600,32 @@ class RestoreVersionView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabas
         return HttpResponseRedirect(reverse('strain-history', kwargs={'pk': strain.pk}))
 
 
+class NextStrainInfoAPIView(LoginRequiredMixin, DatabasePermissionMixin, View):
+    required_permission = 'edit'
+
+    def get(self, request, *args, **kwargs):
+        active_database = getattr(request, 'active_database', None) or get_active_database(request)
+        if hasattr(active_database, 'status_code'):
+            return active_database
+        if active_database is None:
+            return JsonResponse({'next_strain_id': '', 'next_location': ''})
+        return JsonResponse({
+            'next_strain_id': get_next_strain_id(active_database),
+            'next_location': get_next_location(active_database),
+        })
+
+
 class StrainCreateView(LoginRequiredMixin, EditorRequiredMixin, CreateView):
     model = Strain
     form_class = StrainForm
     template_name = 'research/strain_form.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        context['next_strain_id'] = get_next_strain_id(active_database)
+        context['next_location'] = get_next_location(active_database)
+        return context
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -1635,6 +1659,13 @@ class StrainUpdateView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQ
     model = Strain
     form_class = StrainForm
     template_name = 'research/strain_form.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        active_database = getattr(self.request, 'active_database', None) or get_active_database(self.request)
+        context['next_strain_id'] = get_next_strain_id(active_database)
+        context['next_location'] = get_next_location(active_database)
+        return context
 
     def get_queryset(self):
         return super().get_queryset().filter(is_active=True)

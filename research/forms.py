@@ -2,7 +2,7 @@ from django import forms
 from django.contrib.contenttypes.models import ContentType
 
 from .dynamic_forms import build_dynamic_custom_fields, evaluate_condition_logic, save_dynamic_custom_values
-from .helpers import get_active_database, get_custom_field_definitions
+from .helpers import get_active_database, get_custom_field_definitions, get_next_location, get_next_strain_id
 from .models import (
     CustomFieldDefinition,
     CustomFieldGroup,
@@ -151,6 +151,22 @@ class StrainForm(forms.ModelForm):
         self.fields['location'].required = False
         self.fields['strain_id'].widget.attrs['readonly'] = True
         self.fields['location'].widget.attrs['readonly'] = True
+
+        if current_database and not self.instance.pk:
+            self.initial.setdefault('strain_id', get_next_strain_id(current_database))
+            self.initial.setdefault('location', get_next_location(current_database))
+
+        self.fields['strain_id'].widget.attrs.update({
+            'class': 'form-input bg-gray-700/60 text-slate-200 border-gray-600 rounded-md',
+            'data-auto-field': 'strain_id',
+        })
+        self.fields['location'].widget.attrs.update({
+            'class': 'form-input bg-gray-700/60 text-slate-200 border-gray-600 rounded-md',
+            'data-auto-field': 'location',
+        })
+        self.fields['plasmids'].widget.attrs.update({
+            'class': 'form-select dark:bg-gray-800 dark:text-gray-100 border-gray-600 rounded min-h-32',
+        })
 
         self.dynamic_custom_fields = build_dynamic_custom_fields(self, current_database, self.instance, self.request.user if self.request else None)
 
