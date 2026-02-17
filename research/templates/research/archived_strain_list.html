@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Archived Strains | Strain DB{% endblock %}
+{% block header_title %}Archived Strains{% endblock %}
+{% block content %}
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <h2 class="text-2xl font-bold">Archived Strains</h2>
+    <a href="{% url 'strain-list' %}" class="rounded-md border border-slate-600 px-4 py-2 text-sm hover:bg-slate-700">Back to Active Strains</a>
+  </div>
+
+  <div class="overflow-hidden rounded-lg border border-yellow-600/40 bg-slate-800">
+    <table class="min-w-full divide-y divide-slate-700 text-sm">
+      <thead class="bg-slate-900 text-slate-300">
+        <tr>
+          <th class="px-4 py-3 text-left">Strain ID</th>
+          <th class="px-4 py-3 text-left">Name</th>
+          <th class="px-4 py-3 text-left">Archived At</th>
+          <th class="px-4 py-3 text-left">Archived By</th>
+          <th class="px-4 py-3 text-left">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-700">
+        {% for strain in strains %}
+          <tr class="bg-yellow-950/10">
+            <td class="px-4 py-3"><a class="text-primary hover:underline" href="{% url 'strain-detail' strain.pk %}">{{ strain.strain_id }}</a></td>
+            <td class="px-4 py-3">{{ strain.name }}</td>
+            <td class="px-4 py-3">{{ strain.archived_at|default:'-' }}</td>
+            <td class="px-4 py-3">{{ strain.archived_by|default:'Unknown' }}</td>
+            <td class="px-4 py-3">
+              <form method="post" action="{% url 'strain-restore' strain.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs hover:bg-emerald-500">Restore</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td class="px-4 py-4 text-slate-400" colspan="5">No archived strains.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

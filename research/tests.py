@@ -616,3 +616,76 @@ class DashboardAnalyticsTests(TestCase):
         self.assertEqual(response.context['total_strains'], 0)
         self.assertFalse(response.context['has_strains'])
         self.assertContains(response, 'No strain data yet')
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class StrainArchiveWorkflowTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.owner = User.objects.create_user(username='arc-owner', password='pass123')
+        self.admin = User.objects.create_user(username='arc-admin', password='pass123')
+        self.editor = User.objects.create_user(username='arc-editor', password='pass123')
+        self.database = ResearchDatabase.objects.create(name='DB-Archive', created_by=self.owner)
+
+        DatabaseMembership.objects.create(user=self.owner, research_database=self.database, role=DatabaseMembership.Role.OWNER)
+        DatabaseMembership.objects.create(user=self.admin, research_database=self.database, role=DatabaseMembership.Role.ADMIN)
+        DatabaseMembership.objects.create(user=self.editor, research_database=self.database, role=DatabaseMembership.Role.EDITOR)
+
+        self.organism = Organism.objects.create(research_database=self.database, name='S. cerevisiae')
+        self.location = Location.objects.create(
+            research_database=self.database,
+            building='ARC',
+            room='R1',
+            freezer='F1',
+            box='B1',
+            position='P1',
+        )
+        self.strain = Strain.all_objects.create(
+            research_database=self.database,
+            strain_id='ARC-001',
+            name='Archive Target',
+            organism=self.organism,
+            genotype='WT',
+            location=self.location,
+            created_by=self.owner,
+        )
+
+    def _set_active_database(self):
+        session = self.client.session
+        session[SESSION_DATABASE_KEY] = self.database.id
+        session.save()
+
+    def test_editor_can_archive_and_restore_strain(self):
+        self.client.force_login(self.editor)
+        self._set_active_database()
+
+        archive_response = self.client.post(reverse('strain-archive', kwargs={'pk': self.strain.pk}))
+        self.assertEqual(archive_response.status_code, 302)
+        self.strain.refresh_from_db()
+        self.assertTrue(self.strain.is_archived)
+        self.assertEqual(self.strain.archived_by, self.editor)
+
+        restore_response = self.client.post(reverse('strain-restore', kwargs={'pk': self.strain.pk}))
+        self.assertEqual(restore_response.status_code, 302)
+        self.strain.refresh_from_db()
+        self.assertFalse(self.strain.is_archived)
+        self.assertIsNone(self.strain.archived_by)
+
+        self.assertTrue(AuditLog.objects.filter(action='archive_strain', record_id=str(self.strain.pk)).exists())
+        self.assertTrue(AuditLog.objects.filter(action='restore_strain', record_id=str(self.strain.pk)).exists())
+
+    def test_admin_can_hard_delete_strain(self):
+        self.client.force_login(self.admin)
+        self._set_active_database()
+
+        response = self.client.post(reverse('strain-hard-delete', kwargs={'pk': self.strain.pk}))
+        self.assertRedirects(response, reverse('strain-list'))
+        self.assertFalse(Strain.all_objects.filter(pk=self.strain.pk).exists())
+        self.assertTrue(AuditLog.objects.filter(action='hard_delete_strain').exists())
+
+    def test_editor_cannot_hard_delete_strain(self):
+        self.client.force_login(self.editor)
+        self._set_active_database()
+
+        response = self.client.post(reverse('strain-hard-delete', kwargs={'pk': self.strain.pk}))
+        self.assertEqual(response.status_code, 403)
