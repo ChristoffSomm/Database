@@ -387,15 +387,15 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
         )
 
         most_common_organisms = list(
-            strains_qs.values('organism__name')
+            strains_qs.values('organism')
             .annotate(total=Count('id'))
-            .order_by('-total', 'organism__name')[:7]
+            .order_by('-total', 'organism')[:7]
         )
 
         most_common_locations = list(
-            strains_qs.values('location__building', 'location__room', 'location__freezer', 'location__box', 'location__position')
+            strains_qs.values('location')
             .annotate(total=Count('id'))
-            .order_by('-total', 'location__building', 'location__room', 'location__freezer')[:7]
+            .order_by('-total', 'location')[:7]
         )
 
         monthly_counts = {
@@ -429,15 +429,7 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
         )
 
         for location in most_common_locations:
-            location['label'] = ' / '.join(
-                [
-                    location['location__building'],
-                    location['location__room'],
-                    location['location__freezer'],
-                    location['location__box'],
-                    location['location__position'],
-                ]
-            )
+            location['label'] = location['location']
 
         return {
             'total_strains': totals['total_strains'],
@@ -467,7 +459,7 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
         context['has_strains'] = metrics['total_strains'] > 0
         context['organism_chart_data'] = json.dumps(
             {
-                'labels': [item['organism__name'] for item in metrics['most_common_organisms']],
+                'labels': [item['organism'] for item in metrics['most_common_organisms']],
                 'counts': [item['total'] for item in metrics['most_common_organisms']],
             }
         )
@@ -963,7 +955,7 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
             super()
             .get_queryset()
             .filter(is_active=True)
-            .select_related('organism', 'location')
+            
             .prefetch_related('plasmids')
         )
 
@@ -982,7 +974,7 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
         if status:
             queryset = queryset.filter(status=status)
         if organism_id:
-            queryset = queryset.filter(organism_id=organism_id)
+            queryset = queryset.filter(organism=organism_id)
 
         for definition in get_custom_field_definitions(self.get_active_database()):
             field_key = f'cf_{definition.id}'
@@ -1035,7 +1027,7 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
         context['selected_status'] = self.request.GET.get('status', '').strip()
         context['selected_organism'] = self.request.GET.get('organism', '').strip()
         context['status_choices'] = Strain.Status.choices
-        context['organisms'] = Organism.objects.filter(research_database=active_database).order_by('name')
+        context['organisms'] = Strain.ORGANISM_CHOICES
         context['custom_field_filters'] = [
             {
                 'id': definition.id,
@@ -1069,7 +1061,7 @@ class BulkEditStrainsView(LoginRequiredMixin, EditorRequiredMixin, CurrentDataba
 
     def post(self, request, *args, **kwargs):
         active_database = self.get_active_database()
-        selected_strains = self._selected_queryset().select_related('organism', 'location').prefetch_related('plasmids')
+        selected_strains = self._selected_queryset().prefetch_related('plasmids')
 
         if not selected_strains.exists():
             messages.error(request, 'Please select at least one valid strain.')
@@ -1369,7 +1361,7 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
         return (
             Strain.all_objects
             .filter(is_active=True, research_database=self.get_active_database())
-            .select_related('organism', 'location', 'created_by')
+            .select_related('created_by')
             .prefetch_related('plasmids', 'files', 'attachments__uploaded_by')
         )
 
@@ -1720,7 +1712,7 @@ class ArchivedStrainListView(LoginRequiredMixin, DatabasePermissionMixin, ListVi
 
     def get_queryset(self):
         active_database = self.get_active_database()
-        return Strain.all_objects.filter(research_database=active_database, is_active=True, is_archived=True).select_related('organism', 'location', 'archived_by')
+        return Strain.all_objects.filter(research_database=active_database, is_active=True, is_archived=True).select_related('archived_by')
 
 
 class OrganismDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailView):

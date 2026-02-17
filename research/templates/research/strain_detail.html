@@ -38,9 +38,9 @@
       <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-400">Core Details</h3>
       <p><span class="text-slate-400">Strain ID:</span> {{ strain.strain_id }}</p>
       <p><span class="text-slate-400">Name:</span> {{ strain.name }}</p>
-      <p><span class="text-slate-400">Organism:</span> <a class="text-primary hover:underline" href="{% url 'organism-detail' strain.organism.pk %}">{{ strain.organism.name }}</a></p>
+      <p><span class="text-slate-400">Organism:</span> {{ strain.get_organism_display }}</p>
       <p><span class="text-slate-400">Status:</span> {{ strain.get_status_display }}</p>
-      <p><span class="text-slate-400">Location:</span> <a class="text-primary hover:underline" href="{% url 'location-detail' strain.location.pk %}">{{ strain.location }}</a></p>
+      <p><span class="text-slate-400">Location:</span> {{ strain.location }}</p>
       <p><span class="text-slate-400">Created by:</span> {{ strain.created_by }}</p>
       <p><span class="text-slate-400">Created:</span> {{ strain.created_at }}</p>
       <p><span class="text-slate-400">Updated:</span> {{ strain.updated_at }}</p>
