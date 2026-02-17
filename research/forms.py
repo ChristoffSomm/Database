@@ -7,10 +7,8 @@ from .models import (
     CustomFieldDefinition,
     CustomFieldGroup,
     CustomFieldValue,
-    Location,
     Organization,
     OrganizationMembership,
-    Organism,
     Plasmid,
     SavedView,
     Strain,
@@ -126,7 +124,11 @@ class StrainForm(forms.ModelForm):
         model = Strain
         fields = ['strain_id', 'name', 'organism', 'genotype', 'plasmids', 'selective_marker', 'comments', 'location', 'status']
         widgets = {
-            'genotype': forms.Textarea(attrs={'rows': 4}),
+            'organism': forms.Select(),
+            'genotype': forms.Select(),
+            'selective_marker': forms.Select(),
+            'status': forms.Select(),
+            'comments': forms.Textarea(attrs={'rows': 4}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -137,15 +139,18 @@ class StrainForm(forms.ModelForm):
 
         current_database = self._get_current_database()
         if current_database:
-            self.fields['organism'].queryset = Organism.objects.filter(research_database=current_database).order_by('name')
             self.fields['plasmids'].queryset = Plasmid.objects.filter(research_database=current_database).order_by('name')
-            self.fields['location'].queryset = Location.objects.filter(research_database=current_database).order_by(
-                'building', 'room', 'freezer', 'box', 'position'
-            )
         else:
-            self.fields['organism'].queryset = Organism.objects.none()
             self.fields['plasmids'].queryset = Plasmid.objects.none()
-            self.fields['location'].queryset = Location.objects.none()
+
+        genotype_choices = [('', '---------')]
+        if Strain.GENOTYPE_CHOICES:
+            genotype_choices += list(Strain.GENOTYPE_CHOICES)
+        self.fields['genotype'].choices = genotype_choices
+        self.fields['strain_id'].required = False
+        self.fields['location'].required = False
+        self.fields['strain_id'].widget.attrs['readonly'] = True
+        self.fields['location'].widget.attrs['readonly'] = True
 
         self.dynamic_custom_fields = build_dynamic_custom_fields(self, current_database, self.instance, self.request.user if self.request else None)
 
@@ -155,9 +160,9 @@ class StrainForm(forms.ModelForm):
         return getattr(self.request, 'active_database', None) or get_active_database(self.request)
 
     def clean_strain_id(self):
-        strain_id = self.cleaned_data['strain_id'].strip()
+        strain_id = (self.cleaned_data.get('strain_id') or '').strip()
         if not strain_id:
-            raise forms.ValidationError('Strain ID is required.')
+            return ''
 
         current_database = self._get_current_database()
         queryset = Strain.all_objects.filter(research_database=current_database, strain_id__iexact=strain_id)
@@ -178,11 +183,6 @@ class StrainForm(forms.ModelForm):
         current_database = self._get_current_database()
         if current_database is None:
             raise forms.ValidationError('No active research database selected.')
-
-        for field_name in ('organism', 'location'):
-            instance = cleaned_data.get(field_name)
-            if instance and instance.research_database_id != current_database.id:
-                self.add_error(field_name, 'Selected item does not belong to the current database.')
 
         plasmids = cleaned_data.get('plasmids')
         if plasmids is not None:
@@ -226,9 +226,9 @@ class StrainAttachmentUploadForm(forms.Form):
 
 
 class BulkEditStrainsForm(forms.Form):
-    organism = forms.ModelChoiceField(queryset=Organism.objects.none(), required=False)
-    location = forms.ModelChoiceField(queryset=Location.objects.none(), required=False)
-    genotype = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
+    organism = forms.ChoiceField(required=False, choices=[('', 'No change')] + list(Strain.ORGANISM_CHOICES))
+    location = forms.CharField(required=False)
+    genotype = forms.ChoiceField(required=False, choices=[('', 'No change')] + list(Strain.GENOTYPE_CHOICES))
     plasmids = forms.ModelMultipleChoiceField(queryset=Plasmid.objects.none(), required=False)
     selective_marker = forms.CharField(required=False)
     comments = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
@@ -240,10 +240,6 @@ class BulkEditStrainsForm(forms.Form):
 
         current_database = self._get_current_database()
         if current_database:
-            self.fields['organism'].queryset = Organism.objects.filter(research_database=current_database).order_by('name')
-            self.fields['location'].queryset = Location.objects.filter(research_database=current_database).order_by(
-                'building', 'room', 'freezer', 'box', 'position'
-            )
             self.fields['plasmids'].queryset = Plasmid.objects.filter(research_database=current_database).order_by('name')
 
         self._add_dynamic_custom_fields()
@@ -281,11 +277,6 @@ class BulkEditStrainsForm(forms.Form):
         current_database = self._get_current_database()
         if current_database is None:
             raise forms.ValidationError('No active research database selected.')
-
-        for field_name in ('organism', 'location'):
-            instance = cleaned_data.get(field_name)
-            if instance and instance.research_database_id != current_database.id:
-                self.add_error(field_name, 'Selected item does not belong to the current database.')
 
         plasmids = cleaned_data.get('plasmids')
         if plasmids is not None:

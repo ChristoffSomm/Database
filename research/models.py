@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 import os
+import re
 import uuid
 from django.utils.text import slugify
 
@@ -214,6 +215,24 @@ class ActiveStrainManager(models.Manager):
         return super().get_queryset().filter(is_archived=False)
 
 
+def increment_location(location_value):
+    match = re.match(r'^Box\s+(\d+)\s+([A-I])(\d)$', (location_value or '').strip())
+    if not match:
+        return 'Box 1 A1'
+
+    box_number = int(match.group(1))
+    row = match.group(2)
+    column = int(match.group(3))
+
+    if column < 9:
+        return f'Box {box_number} {row}{column + 1}'
+
+    if row < 'I':
+        return f'Box {box_number} {chr(ord(row) + 1)}1'
+
+    return f'Box {box_number + 1} A1'
+
+
 class Strain(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'draft', 'Draft'
@@ -221,14 +240,30 @@ class Strain(models.Model):
         APPROVED = 'approved', 'Approved'
         ARCHIVED = 'archived', 'Archived'
 
+    ORGANISM_CHOICES = [
+        ('bacillus_subtilis', 'Bacillus subtilis'),
+        ('e_coli', 'E. coli'),
+        ('k_lactis', 'K. lactis'),
+        ('s_cerevisiae', 'Saccharomyces cerevisiae'),
+        ('yeast', 'Yeast'),
+    ]
+    GENOTYPE_CHOICES = []
+    SELECTIVE_MARKER_CHOICES = [
+        ('amp', 'AMP'),
+        ('kan', 'KAN'),
+        ('chlor', 'Chloramphenicol'),
+        ('ura3', 'URA3'),
+        ('leu2', 'LEU2'),
+    ]
+
     research_database = models.ForeignKey(ResearchDatabase, on_delete=models.CASCADE, related_name='strains')
-    strain_id = models.CharField(max_length=60, db_index=True)
+    strain_id = models.CharField(max_length=60, db_index=True, blank=True)
     name = models.CharField(max_length=200, db_index=True)
-    organism = models.ForeignKey(Organism, on_delete=models.PROTECT, related_name='strains')
-    genotype = models.TextField()
-    selective_marker = models.CharField(max_length=255, blank=True)
+    organism = models.CharField(max_length=50, choices=ORGANISM_CHOICES)
+    genotype = models.CharField(max_length=100, blank=True, null=True, choices=GENOTYPE_CHOICES or None)
+    selective_marker = models.CharField(max_length=50, choices=SELECTIVE_MARKER_CHOICES, blank=True)
     comments = models.TextField(blank=True)
-    location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name='strains')
+    location = models.CharField(max_length=120, db_index=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT, db_index=True)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_strains')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -251,6 +286,34 @@ class Strain(models.Model):
             models.Index(fields=['research_database', 'status']),
             models.Index(fields=['research_database', 'updated_at']),
         ]
+
+    @classmethod
+    def get_next_strain_id(cls, research_database):
+        prefix_pattern = re.compile(r'^A(\d+)$')
+        max_number = 0
+        for value in cls.all_objects.filter(research_database=research_database).values_list('strain_id', flat=True):
+            match = prefix_pattern.match((value or '').strip())
+            if match:
+                max_number = max(max_number, int(match.group(1)))
+        return f'A{max_number + 1:03d}'
+
+    @classmethod
+    def get_next_location(cls, research_database):
+        location_pattern = re.compile(r'^Box\s+(\d+)\s+([A-I])(\d)$')
+        highest_tuple = None
+        highest_location = None
+        for value in cls.all_objects.filter(research_database=research_database).values_list('location', flat=True):
+            match = location_pattern.match((value or '').strip())
+            if not match:
+                continue
+            current_tuple = (int(match.group(1)), ord(match.group(2)) - ord('A'), int(match.group(3)))
+            if highest_tuple is None or current_tuple > highest_tuple:
+                highest_tuple = current_tuple
+                highest_location = value
+
+        if highest_location is None:
+            return 'Box 1 A1'
+        return increment_location(highest_location)
 
     def __str__(self):
         return f'{self.strain_id} - {self.name}'
@@ -285,6 +348,12 @@ class Strain(models.Model):
                     changed_by=changed_by or get_current_user(),
                     snapshot=serialize_strain_snapshot(previous_state),
                 )
+
+        if not self.strain_id and self.research_database_id:
+            self.strain_id = self.get_next_strain_id(self.research_database)
+        if not self.location and self.research_database_id:
+            self.location = self.get_next_location(self.research_database)
+
         return super().save(*args, **kwargs)
 
 

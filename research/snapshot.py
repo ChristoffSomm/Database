@@ -33,7 +33,7 @@ def build_organization_snapshot(organization):
     database_ids = [database.id for database in databases]
     strains = list(
         Strain.all_objects.filter(research_database_id__in=database_ids)
-        .select_related('organism', 'location', 'created_by', 'archived_by')
+        .select_related('created_by', 'archived_by')
         .prefetch_related('plasmids')
     )
     strain_ids = [strain.id for strain in strains]
@@ -112,11 +112,11 @@ def build_organization_snapshot(organization):
                 'research_database_id': strain.research_database_id,
                 'strain_id': strain.strain_id,
                 'name': strain.name,
-                'organism_id': strain.organism_id,
+                'organism': strain.organism,
                 'genotype': strain.genotype,
                 'selective_marker': strain.selective_marker,
                 'comments': strain.comments,
-                'location_id': strain.location_id,
+                'location': strain.location,
                 'status': strain.status,
                 'created_by_id': strain.created_by_id,
                 'created_at': _ts(strain.created_at),
@@ -307,10 +307,16 @@ def restore_organization_snapshot(*, organization, snapshot, acting_user, users_
 
         for strain_data in snapshot.get('strains', []):
             database = database_id_map.get(strain_data.get('research_database_id'))
-            organism = organism_id_map.get(strain_data.get('organism_id'))
-            location = location_id_map.get(strain_data.get('location_id'))
-            if not database or not organism or not location:
+            if not database:
                 continue
+            organism = strain_data.get('organism')
+            if not organism:
+                legacy_organism = organism_id_map.get(strain_data.get('organism_id'))
+                organism = legacy_organism.name if legacy_organism else ''
+            location = strain_data.get('location')
+            if not location:
+                legacy_location = location_id_map.get(strain_data.get('location_id'))
+                location = str(legacy_location) if legacy_location else ''
             created_by = _resolve_user(
                 users_by_id,
                 users_by_name,
@@ -333,7 +339,7 @@ def restore_organization_snapshot(*, organization, snapshot, acting_user, users_
                 research_database=database,
                 strain_id=strain_data['strain_id'],
                 name=strain_data['name'],
-                organism=organism,
+                organism=organism or Strain.ORGANISM_CHOICES[0][0],
                 genotype=strain_data.get('genotype', ''),
                 selective_marker=strain_data.get('selective_marker', ''),
                 comments=strain_data.get('comments', ''),

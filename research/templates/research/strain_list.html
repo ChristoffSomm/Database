@@ -22,8 +22,8 @@
     </select>
     <select name="organism" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm focus:border-primary focus:outline-none">
       <option value="">All organisms</option>
-      {% for organism in organisms %}
-        <option value="{{ organism.id }}" {% if selected_organism == organism.id|stringformat:'s' %}selected{% endif %}>{{ organism.name }}</option>
+      {% for organism_value, organism_label in organisms %}
+        <option value="{{ organism_value }}" {% if selected_organism == organism_value %}selected{% endif %}>{{ organism_label }}</option>
       {% endfor %}
     </select>
     <button type="submit" class="rounded-md bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600">Apply Filters</button>
@@ -96,7 +96,7 @@
             {% endif %}
             <td class="px-4 py-3"><a class="text-primary hover:underline" href="{% url 'strain-detail' strain.pk %}">{{ strain.strain_id }}</a></td>
             <td class="px-4 py-3">{{ strain.name }}{% if strain.is_archived %} <span class="ml-1 rounded-full bg-yellow-900/40 px-2 py-0.5 text-xs text-yellow-300">Archived</span>{% endif %}</td>
-            <td class="px-4 py-3">{{ strain.organism.name }}</td>
+            <td class="px-4 py-3">{{ strain.get_organism_display }}</td>
             <td class="px-4 py-3">{{ strain.location }}</td>
             <td class="px-4 py-3">{{ strain.get_status_display }}</td>
           </tr>

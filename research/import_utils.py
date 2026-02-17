@@ -5,7 +5,7 @@ from datetime import datetime
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from .models import CustomFieldDefinition, CustomFieldValue, Organism, Plasmid, Strain
+from .models import CustomFieldDefinition, CustomFieldValue, Plasmid, Strain
 
 STANDARD_IMPORT_FIELDS = [
     ('strain_id', 'Strain ID'),
@@ -37,16 +37,8 @@ def parse_csv_upload(uploaded_file):
 def parse_location_value(raw_value):
     if not raw_value:
         return None
-    parts = [part.strip() for part in raw_value.split('/')]
-    if len(parts) != 5:
-        return None
-    return {
-        'building': parts[0],
-        'room': parts[1],
-        'freezer': parts[2],
-        'box': parts[3],
-        'position': parts[4],
-    }
+    value = raw_value.strip()
+    return value if value.startswith('Box ') else None
 
 
 def parse_custom_field_value(definition, raw_value):
@@ -91,14 +83,12 @@ def validate_import_row(mapped_row, active_database, custom_definitions_by_name)
             errors.append(f'Missing required field: {required}.')
 
     organism_name = mapped_row.get('organism')
-    if organism_name:
-        organism_exists = Organism.objects.filter(research_database=active_database, name=organism_name).exists()
-        if not organism_exists:
-            errors.append(f'Unknown organism: "{organism_name}".')
+    if organism_name and organism_name not in dict(Strain.ORGANISM_CHOICES):
+        errors.append(f'Unknown organism: "{organism_name}".')
 
     location_string = mapped_row.get('location')
     if location_string and not parse_location_value(location_string):
-        errors.append('Location must be in "building / room / freezer / box / position" format.')
+        errors.append('Location must be in "Box <number> <row><column>" format.')
 
     plasmids_value = mapped_row.get('plasmids')
     if plasmids_value:
@@ -153,9 +143,7 @@ def import_strains_from_csv_rows(*, active_database, user, mapped_rows, custom_d
                 skipped_count += 1
                 continue
 
-            organism = Organism.objects.get(research_database=active_database, name=mapped_row['organism'])
-            loc_parts = parse_location_value(mapped_row['location'])
-            location = active_database.locations.filter(**loc_parts).first()
+            location = parse_location_value(mapped_row['location'])
             if location is None:
                 skipped_count += 1
                 continue
@@ -164,7 +152,7 @@ def import_strains_from_csv_rows(*, active_database, user, mapped_rows, custom_d
                 research_database=active_database,
                 strain_id=strain_id,
                 name=strain_id,
-                organism=organism,
+                organism=mapped_row['organism'],
                 genotype=(mapped_row.get('genotype') or '').strip(),
                 selective_marker=(mapped_row.get('selective_marker') or '').strip(),
                 comments=(mapped_row.get('comments') or '').strip(),
