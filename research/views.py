@@ -279,6 +279,94 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
     template_name = 'research/dashboard.html'
     required_permission = 'view'
 
+    @staticmethod
+    def _safe_field_type(*names):
+        for name in names:
+            value = getattr(CustomFieldDefinition.FieldType, name, None)
+            if value is not None:
+                return value
+        return None
+
+    def _custom_field_display_case(self):
+        when_clauses = []
+
+        text_field_type = self._safe_field_type('TEXT')
+        if text_field_type is not None:
+            when_clauses.append(When(field_definition__field_type=text_field_type, then=F('value_text')))
+
+        long_text_field_type = self._safe_field_type('LONG_TEXT')
+        if long_text_field_type is not None:
+            when_clauses.append(
+                When(
+                    field_definition__field_type=long_text_field_type,
+                    then=Coalesce('value_long_text', 'value_text'),
+                )
+            )
+
+        integer_field_type = self._safe_field_type('INTEGER')
+        if integer_field_type is not None:
+            when_clauses.append(
+                When(
+                    field_definition__field_type=integer_field_type,
+                    then=Coalesce(
+                        Cast('value_number', output_field=CharField()),
+                        Cast('value_integer', output_field=CharField()),
+                    ),
+                )
+            )
+
+        decimal_field_type = self._safe_field_type('DECIMAL')
+        if decimal_field_type is not None:
+            when_clauses.append(
+                When(
+                    field_definition__field_type=decimal_field_type,
+                    then=Cast('value_decimal', output_field=CharField()),
+                )
+            )
+
+        date_field_type = self._safe_field_type('DATE')
+        if date_field_type is not None:
+            when_clauses.append(
+                When(
+                    field_definition__field_type=date_field_type,
+                    then=Cast('value_date', output_field=CharField()),
+                )
+            )
+
+        boolean_field_type = self._safe_field_type('BOOLEAN')
+        if boolean_field_type is not None:
+            when_clauses.append(
+                When(
+                    field_definition__field_type=boolean_field_type,
+                    then=Case(
+                        When(value_boolean=True, then=Value('Yes')),
+                        When(value_boolean=False, then=Value('No')),
+                        default=Value(''),
+                        output_field=CharField(),
+                    ),
+                )
+            )
+
+        single_select_field_type = self._safe_field_type('SINGLE_SELECT')
+        if single_select_field_type is not None:
+            when_clauses.append(
+                When(
+                    field_definition__field_type=single_select_field_type,
+                    then=Coalesce('value_single_select', 'value_choice'),
+                )
+            )
+
+        multi_select_field_type = self._safe_field_type('MULTI_SELECT')
+        if multi_select_field_type is not None:
+            when_clauses.append(
+                When(
+                    field_definition__field_type=multi_select_field_type,
+                    then=Cast('value_multi_select', output_field=CharField()),
+                )
+            )
+
+        return Case(*when_clauses, default=Value(''), output_field=CharField())
+
     def _build_dashboard_metrics(self, active_database):
         now = timezone.now()
         thirty_days_ago = now - timedelta(days=30)
@@ -326,23 +414,7 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
             for boundary in month_boundaries
         ]
 
-        choice_label = Case(
-            When(field_definition__field_type=CustomFieldDefinition.FieldType.CHOICE, then=F('value_choice')),
-            When(field_definition__field_type=CustomFieldDefinition.FieldType.TEXT, then=F('value_text')),
-            When(field_definition__field_type=CustomFieldDefinition.FieldType.NUMBER, then=Cast('value_number', output_field=CharField())),
-            When(field_definition__field_type=CustomFieldDefinition.FieldType.DATE, then=Cast('value_date', output_field=CharField())),
-            When(
-                field_definition__field_type=CustomFieldDefinition.FieldType.BOOLEAN,
-                then=Case(
-                    When(value_boolean=True, then=Value('Yes')),
-                    When(value_boolean=False, then=Value('No')),
-                    default=Value(''),
-                    output_field=CharField(),
-                ),
-            ),
-            default=Value(''),
-            output_field=CharField(),
-        )
+        choice_label = self._custom_field_display_case()
 
         top_custom_field_value_counts = list(
             CustomFieldValue.objects.filter(
