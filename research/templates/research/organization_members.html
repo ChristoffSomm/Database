@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Organization Members | Strain DB{% endblock %}
+{% block header_title %}Organization Members{% endblock %}
+
+{% block content %}
+<div class="grid gap-6 lg:grid-cols-2">
+  <section class="rounded-xl border border-slate-700 bg-card-bg p-6">
+    <h2 class="mb-3 text-xl font-bold">{{ organization.name }} Members</h2>
+    <div class="space-y-2">
+      {% for membership in memberships %}
+        <div class="rounded border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm">
+          <span class="font-medium">{{ membership.user.username }}</span>
+          <span class="ml-2 text-slate-400">{{ membership.get_role_display }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+  <section class="rounded-xl border border-slate-700 bg-card-bg p-6">
+    <h3 class="mb-3 text-lg font-semibold">Add / Invite Member</h3>
+    <form method="post" class="space-y-3">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="rounded bg-primary px-4 py-2 font-semibold text-black">Save Member</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

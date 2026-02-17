@@ -1,0 +1,22 @@
+{% if available_organization_memberships|length > 0 and active_organization %}
+<details class="relative">
+  <summary class="flex cursor-pointer list-none items-center gap-2 rounded-md border border-slate-700 bg-[#20242d] px-3 py-1.5 text-sm text-slate-100">
+    <span class="text-xs uppercase tracking-wide text-slate-400">Organization</span>
+    <span class="font-medium text-primary">{{ active_organization.name }}</span>
+  </summary>
+  <div class="absolute right-0 mt-2 w-72 rounded-md border border-slate-700 bg-[#161a22] p-1 shadow-2xl">
+    {% for membership in available_organization_memberships %}
+      <form method="post" action="{% url 'organization-switch-id' membership.organization.id %}">
+        {% csrf_token %}
+        <button type="submit" class="mb-1 block w-full rounded px-3 py-2 text-left text-sm transition {% if membership.organization.id == active_organization.id %}bg-primary text-black{% else %}text-slate-200 hover:bg-slate-700{% endif %}">
+          <span class="font-medium">{{ membership.organization.name }}</span>
+          <span class="ml-2 text-xs uppercase tracking-wide {% if membership.organization.id == active_organization.id %}text-black/70{% else %}text-slate-400{% endif %}">
+            {{ membership.get_role_display }}
+          </span>
+        </button>
+      </form>
+    {% endfor %}
+    <a href="{% url 'organization-list' %}" class="mt-1 block rounded px-3 py-2 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-200">Manage organizations</a>
+  </div>
+</details>
+{% endif %}

@@ -5,9 +5,17 @@ from django.forms.models import model_to_dict
 from django.shortcuts import redirect
 from django.urls import reverse
 
-from .models import ActivityLog, CustomFieldDefinition, CustomFieldValue, DatabaseMembership, ResearchDatabase
+from .models import (
+    ActivityLog,
+    CustomFieldDefinition,
+    CustomFieldValue,
+    DatabaseMembership,
+    OrganizationMembership,
+    ResearchDatabase,
+)
 
 SESSION_DATABASE_KEY = 'active_database_id'
+SESSION_ORGANIZATION_KEY = 'active_org_id'
 LEGACY_SESSION_DATABASE_KEY = 'current_database'
 _REQUEST_STATE = local()
 
@@ -41,6 +49,53 @@ def get_current_user():
     return getattr(_REQUEST_STATE, 'user', None)
 
 
+
+def get_active_organization(request):
+    if not request.user.is_authenticated:
+        return None
+
+    organization_id = request.session.get(SESSION_ORGANIZATION_KEY)
+    memberships = OrganizationMembership.objects.select_related('organization').filter(user=request.user)
+
+    if organization_id:
+        membership = memberships.filter(organization_id=organization_id).first()
+        if membership:
+            request.session[SESSION_ORGANIZATION_KEY] = membership.organization_id
+            return membership.organization
+
+    membership = memberships.order_by('organization__name', 'organization_id').first()
+    if membership:
+        request.session[SESSION_ORGANIZATION_KEY] = membership.organization_id
+        return membership.organization
+
+    database_membership = (
+        DatabaseMembership.objects.select_related('research_database__organization')
+        .filter(user=request.user, research_database__organization__isnull=False)
+        .order_by('research_database__organization__name', 'research_database__organization_id')
+        .first()
+    )
+    if database_membership:
+        organization = database_membership.research_database.organization
+        OrganizationMembership.objects.get_or_create(
+            user=request.user,
+            organization=organization,
+            defaults={'role': OrganizationMembership.Role.MEMBER},
+        )
+        request.session[SESSION_ORGANIZATION_KEY] = organization.id
+        return organization
+
+    return None
+
+
+def set_active_organization(request, organization):
+    request.session[SESSION_ORGANIZATION_KEY] = organization.id
+
+
+def get_membership_for_organization(user, organization):
+    if not user.is_authenticated or organization is None:
+        return None
+    return OrganizationMembership.objects.filter(user=user, organization=organization).first()
+
 def get_membership_for_database(user, research_database):
     if not user.is_authenticated or research_database is None:
         return None
@@ -59,10 +114,15 @@ def get_active_database(request):
     if not request.user.is_authenticated:
         return None
 
+    active_organization = get_active_organization(request)
+    if active_organization is None:
+        return redirect(reverse('database-create'))
+
     database_id = request.session.get(SESSION_DATABASE_KEY) or request.session.get(LEGACY_SESSION_DATABASE_KEY)
     if database_id:
         active_database = ResearchDatabase.objects.filter(
             id=database_id,
+            organization=active_organization,
             memberships__user=request.user,
         ).distinct().first()
         if active_database:
@@ -73,7 +133,7 @@ def get_active_database(request):
 
     membership = (
         DatabaseMembership.objects.select_related('research_database')
-        .filter(user=request.user)
+        .filter(user=request.user, research_database__organization=active_organization)
         .order_by('research_database__name', 'research_database_id')
         .first()
     )

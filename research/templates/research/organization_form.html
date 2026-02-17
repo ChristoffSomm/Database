@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Create Organization | Strain DB{% endblock %}
+{% block header_title %}Create Organization{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl rounded-xl border border-slate-700 bg-card-bg p-6">
+  <h2 class="mb-4 text-2xl font-bold">New Organization</h2>
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="rounded bg-primary px-4 py-2 font-semibold text-black">Create</button>
+  </form>
+</div>
+{% endblock %}

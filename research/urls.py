@@ -19,6 +19,10 @@ from .views import (
     FileDetailView,
     LocationDetailView,
     OrganismDetailView,
+    OrganizationCreateView,
+    OrganizationListView,
+    OrganizationMembersView,
+    OrganizationSwitchView,
     PlasmidDetailView,
     SearchResultsView,
     SelectDatabaseView,
@@ -43,6 +47,11 @@ from .views import (
 )
 
 urlpatterns = [
+    path('organizations/', OrganizationListView.as_view(), name='organization-list'),
+    path('organizations/create/', OrganizationCreateView.as_view(), name='organization-create'),
+    path('organizations/switch/', OrganizationSwitchView.as_view(), name='organization-switch'),
+    path('organizations/switch/<int:organization_id>/', OrganizationSwitchView.as_view(), name='organization-switch-id'),
+    path('organizations/members/', OrganizationMembersView.as_view(), name='organization-members'),
     path('databases/create/', CreateDatabaseView.as_view(), name='database-create'),
     path('databases/select/', SelectDatabaseView.as_view(), name='database-select'),
     path('databases/switch/', SwitchDatabaseView.as_view(), name='database-switch'),

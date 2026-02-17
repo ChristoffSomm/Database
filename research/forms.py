@@ -1,7 +1,43 @@
 from django import forms
 
 from .helpers import get_active_database, get_custom_field_definitions
-from .models import CustomFieldDefinition, CustomFieldValue, Location, Organism, Plasmid, SavedView, Strain
+from .models import (
+    CustomFieldDefinition,
+    CustomFieldValue,
+    Location,
+    Organization,
+    OrganizationMembership,
+    Organism,
+    Plasmid,
+    SavedView,
+    Strain,
+)
+
+
+class OrganizationForm(forms.ModelForm):
+    class Meta:
+        model = Organization
+        fields = ['name', 'slug']
+
+    def clean_slug(self):
+        slug = (self.cleaned_data.get('slug') or '').strip().lower()
+        if not slug:
+            raise forms.ValidationError('Slug is required.')
+        return slug
+
+
+class OrganizationMembershipForm(forms.Form):
+    username = forms.CharField(max_length=150, required=False)
+    email = forms.EmailField(required=False)
+    role = forms.ChoiceField(choices=OrganizationMembership.Role.choices)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        username = (cleaned_data.get('username') or '').strip()
+        email = (cleaned_data.get('email') or '').strip()
+        if not username and not email:
+            raise forms.ValidationError('Provide either a username or email address.')
+        return cleaned_data
 
 
 class GlobalSearchForm(forms.Form):
