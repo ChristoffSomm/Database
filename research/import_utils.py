@@ -144,7 +144,7 @@ def import_strains_from_csv_rows(*, active_database, user, mapped_rows, custom_d
                 skipped_count += 1
                 continue
 
-            if Strain.objects.filter(research_database=active_database, strain_id__iexact=strain_id).exists():
+            if Strain.all_objects.filter(research_database=active_database, strain_id__iexact=strain_id).exists():
                 skipped_count += 1
                 continue
 

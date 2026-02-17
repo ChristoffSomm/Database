@@ -7,6 +7,7 @@
     <h2 class="text-2xl font-bold">Strain List</h2>
     <div class="flex items-center gap-2">
       <a href="{% url 'csv_upload' %}" class="rounded-md border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-semibold text-primary hover:bg-slate-800">Import CSV</a>
+      <a href="{% url 'strain-archived-list' %}" class="rounded-md border border-yellow-500/60 bg-yellow-900/20 px-4 py-2 text-sm font-semibold text-yellow-300 hover:bg-yellow-900/30">Archived Strains</a>
       <a href="{% url 'strain-create' %}" class="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:opacity-90">Create Strain</a>
     </div>
   </div>
@@ -94,7 +95,7 @@
               </td>
             {% endif %}
             <td class="px-4 py-3"><a class="text-primary hover:underline" href="{% url 'strain-detail' strain.pk %}">{{ strain.strain_id }}</a></td>
-            <td class="px-4 py-3">{{ strain.name }}</td>
+            <td class="px-4 py-3">{{ strain.name }}{% if strain.is_archived %} <span class="ml-1 rounded-full bg-yellow-900/40 px-2 py-0.5 text-xs text-yellow-300">Archived</span>{% endif %}</td>
             <td class="px-4 py-3">{{ strain.organism.name }}</td>
             <td class="px-4 py-3">{{ strain.location }}</td>
             <td class="px-4 py-3">{{ strain.get_status_display }}</td>

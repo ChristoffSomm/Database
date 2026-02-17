@@ -18,6 +18,7 @@ class DatabasePermissionMixin:
             'edit': database.can_edit,
             'manage_members': database.can_manage_members,
             'owner': database.is_owner,
+            'admin': lambda user: database.get_user_role(user) == 'admin',
         }
         checker = permission_map.get(self.required_permission)
         if checker is None:

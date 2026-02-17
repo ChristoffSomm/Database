@@ -3,6 +3,7 @@ import os
 
 from django.db import models
 from django.urls import reverse
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -126,6 +127,11 @@ class Plasmid(models.Model):
         return reverse('plasmid-detail', kwargs={'pk': self.pk})
 
 
+class ActiveStrainManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_archived=False)
+
+
 class Strain(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'draft', 'Draft'
@@ -147,7 +153,12 @@ class Strain(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True, db_index=True)
     is_archived = models.BooleanField(default=False, db_index=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    archived_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='archived_strains')
     plasmids = models.ManyToManyField(Plasmid, through='StrainPlasmid', related_name='strains', blank=True)
+
+    objects = ActiveStrainManager()
+    all_objects = models.Manager()
 
     class Meta:
         ordering = ['-updated_at']
@@ -165,6 +176,18 @@ class Strain(models.Model):
     def get_absolute_url(self):
         return reverse('strain-detail', kwargs={'pk': self.pk})
 
+    def archive(self, user):
+        self.is_archived = True
+        self.archived_at = timezone.now()
+        self.archived_by = user
+        self.save(update_fields=['is_archived', 'archived_at', 'archived_by', 'updated_at'])
+
+    def restore(self):
+        self.is_archived = False
+        self.archived_at = None
+        self.archived_by = None
+        self.save(update_fields=['is_archived', 'archived_at', 'archived_by', 'updated_at'])
+
     def save(self, *args, **kwargs):
         from .helpers import get_current_user
         from .versioning import serialize_strain_snapshot
@@ -173,7 +196,7 @@ class Strain(models.Model):
         changed_by = kwargs.pop('changed_by', None)
         is_update = bool(self.pk) and not self._state.adding
         if is_update and not skip_version:
-            previous_state = Strain.objects.filter(pk=self.pk).first()
+            previous_state = Strain.all_objects.filter(pk=self.pk).first()
             if previous_state is not None:
                 StrainVersion.objects.create(
                     strain=previous_state,

@@ -128,7 +128,7 @@ class StrainForm(forms.ModelForm):
             raise forms.ValidationError('Strain ID is required.')
 
         current_database = self._get_current_database()
-        queryset = Strain.objects.filter(research_database=current_database, strain_id__iexact=strain_id)
+        queryset = Strain.all_objects.filter(research_database=current_database, strain_id__iexact=strain_id)
         if self.instance.pk:
             queryset = queryset.exclude(pk=self.instance.pk)
         if queryset.exists():

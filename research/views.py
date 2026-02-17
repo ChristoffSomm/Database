@@ -78,6 +78,10 @@ class MemberManagerRequiredMixin(DatabasePermissionMixin):
     required_permission = 'manage_members'
 
 
+class AdminRequiredMixin(DatabasePermissionMixin):
+    required_permission = 'admin'
+
+
 def _can_delete_attachments(database, user):
     role = database.get_user_role(user)
     return role in {DatabaseMembership.Role.OWNER, DatabaseMembership.Role.ADMIN}
@@ -99,7 +103,7 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
             current = (current - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         month_boundaries.reverse()
 
-        strains_qs = Strain.objects.filter(research_database=active_database, is_active=True)
+        strains_qs = Strain.all_objects.filter(research_database=active_database, is_active=True)
         totals = strains_qs.aggregate(
             total_strains=Count('id'),
             total_archived=Count('id', filter=Q(is_archived=True) | Q(status=Strain.Status.ARCHIVED)),
@@ -189,7 +193,7 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         active_database = self.get_active_database()
 
-        latest_strain_update = Strain.objects.filter(research_database=active_database, is_active=True).aggregate(
+        latest_strain_update = Strain.all_objects.filter(research_database=active_database, is_active=True).aggregate(
             latest=Max('updated_at')
         )['latest']
         latest_token = int(latest_strain_update.timestamp()) if latest_strain_update else 0
@@ -552,9 +556,6 @@ class StrainListView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatabas
             .prefetch_related('plasmids')
         )
 
-        include_archived = self.request.GET.get('include_archived', '').strip().lower() in {'1', 'true', 'yes'}
-        if not include_archived:
-            queryset = queryset.filter(is_archived=False)
 
         search_query = self.request.GET.get('q', '').strip()
         status = self.request.GET.get('status', '').strip()
@@ -649,7 +650,7 @@ class BulkEditStrainsView(LoginRequiredMixin, EditorRequiredMixin, CurrentDataba
 
     def _selected_queryset(self):
         active_database = self.get_active_database()
-        return Strain.objects.filter(
+        return Strain.all_objects.filter(
             research_database=active_database,
             is_active=True,
             id__in=self._selected_ids(),
@@ -682,14 +683,18 @@ class BulkEditStrainsView(LoginRequiredMixin, EditorRequiredMixin, CurrentDataba
             return HttpResponseRedirect(reverse('strain-list'))
 
         if action == 'archive':
-            count = selected_strains.update(is_archived=True)
+            selected_ids = list(selected_strains.values_list('id', flat=True))
+            with transaction.atomic():
+                for strain in selected_strains:
+                    strain.archive(request.user)
             AuditLog.objects.create(
                 user=request.user,
                 action='bulk_archive',
                 record_type='Strain',
-                record_id=','.join(str(sid) for sid in selected_strains.values_list('id', flat=True)),
+                record_id=','.join(str(sid) for sid in selected_ids),
+                metadata={'count': len(selected_ids), 'database_id': active_database.id},
             )
-            messages.success(request, f'{count} strains archived successfully.')
+            messages.success(request, f'{len(selected_ids)} strains archived successfully.')
             return HttpResponseRedirect(reverse('strain-list'))
 
         form = BulkEditStrainsForm(request.POST or None, request=request)
@@ -945,9 +950,8 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
 
     def get_queryset(self):
         return (
-            super()
-            .get_queryset()
-            .filter(is_active=True)
+            Strain.all_objects
+            .filter(is_active=True, research_database=self.get_active_database())
             .select_related('organism', 'location', 'created_by')
             .prefetch_related('plasmids', 'files', 'attachments__uploaded_by')
         )
@@ -966,6 +970,7 @@ class StrainDetailView(LoginRequiredMixin, DatabasePermissionMixin, CurrentDatab
         context['can_upload_attachments'] = active_database.can_edit(self.request.user)
         context['can_delete_attachments'] = _can_delete_attachments(active_database, self.request.user)
         context['allowed_text_extensions'] = ['csv', 'txt', 'tsv']
+        context['is_admin'] = active_database.get_user_role(self.request.user) == DatabaseMembership.Role.ADMIN
         return context
 
 
@@ -1061,7 +1066,7 @@ class StrainHistoryView(LoginRequiredMixin, DatabasePermissionMixin, CurrentData
     required_permission = 'view'
 
     def get_queryset(self):
-        return super().get_queryset().filter(is_active=True).select_related('created_by')
+        return Strain.all_objects.filter(research_database=self.get_active_database(), is_active=True).select_related('created_by')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1217,20 +1222,66 @@ class StrainUpdateView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQ
         return response
 
 
-class StrainDeleteView(LoginRequiredMixin, EditorRequiredMixin, CurrentDatabaseQuerysetMixin, DeleteView):
+class ArchiveStrainView(LoginRequiredMixin, EditorRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        strain = get_object_or_404(Strain.all_objects, pk=kwargs['pk'], research_database=active_database, is_active=True)
+        strain.archive(request.user)
+        AuditLog.objects.create(
+            user=request.user,
+            action='archive_strain',
+            record_type='Strain',
+            record_id=str(strain.pk),
+            metadata={'strain_id': strain.strain_id, 'database_id': active_database.id},
+        )
+        messages.success(request, f'Strain {strain.strain_id} archived successfully.')
+        return HttpResponseRedirect(request.META.get('HTTP_REFERER') or reverse('strain-detail', kwargs={'pk': strain.pk}))
+
+
+class RestoreStrainView(LoginRequiredMixin, EditorRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        strain = get_object_or_404(Strain.all_objects, pk=kwargs['pk'], research_database=active_database, is_active=True, is_archived=True)
+        strain.restore()
+        AuditLog.objects.create(
+            user=request.user,
+            action='restore_strain',
+            record_type='Strain',
+            record_id=str(strain.pk),
+            metadata={'strain_id': strain.strain_id, 'database_id': active_database.id},
+        )
+        messages.success(request, f'Strain {strain.strain_id} restored successfully.')
+        return HttpResponseRedirect(request.META.get('HTTP_REFERER') or reverse('strain-detail', kwargs={'pk': strain.pk}))
+
+
+class HardDeleteStrainView(LoginRequiredMixin, AdminRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        active_database = self.get_active_database()
+        strain = get_object_or_404(Strain.all_objects, pk=kwargs['pk'], research_database=active_database, is_active=True)
+        strain_pk = strain.pk
+        strain_id = strain.strain_id
+        strain.delete()
+        AuditLog.objects.create(
+            user=request.user,
+            action='hard_delete_strain',
+            record_type='Strain',
+            record_id=str(strain_pk),
+            metadata={'strain_id': strain_id, 'database_id': active_database.id},
+        )
+        messages.success(request, f'Strain {strain_id} permanently deleted.')
+        return HttpResponseRedirect(reverse('strain-list'))
+
+
+class ArchivedStrainListView(LoginRequiredMixin, DatabasePermissionMixin, ListView):
     model = Strain
-    template_name = 'research/strain_confirm_delete.html'
-    success_url = reverse_lazy('strain-list')
+    template_name = 'research/archived_strain_list.html'
+    context_object_name = 'strains'
+    paginate_by = 25
+    required_permission = 'view'
 
     def get_queryset(self):
-        return super().get_queryset().filter(is_active=True)
-
-    def form_valid(self, form):
-        self.object = self.get_object()
-        self.object.is_active = False
-        self.object.save(update_fields=['is_active', 'updated_at'])
-        messages.success(self.request, f'Strain {self.object.strain_id} deleted successfully.')
-        return HttpResponseRedirect(self.get_success_url())
+        active_database = self.get_active_database()
+        return Strain.all_objects.filter(research_database=active_database, is_active=True, is_archived=True).select_related('organism', 'location', 'archived_by')
 
 
 class OrganismDetailView(LoginRequiredMixin, CurrentDatabaseQuerysetMixin, DetailView):
@@ -1281,7 +1332,7 @@ class SearchResultsView(LoginRequiredMixin, DatabasePermissionMixin, TemplateVie
             if query:
                 active_database = self.request.active_database
                 grouped_results['strains'] = list(
-                    Strain.objects.filter(research_database=active_database, is_active=True)
+                    Strain.all_objects.filter(research_database=active_database, is_active=True, is_archived=False)
                     .filter(
                         Q(strain_id__icontains=query)
                         | Q(name__icontains=query)
