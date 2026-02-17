@@ -369,7 +369,7 @@ class CustomFieldDefinition(models.Model):
         super().save(*args, **kwargs)
 
     def parsed_choices(self):
-        if self.field_type not in {self.FieldType.SINGLE_SELECT, self.FieldType.MULTI_SELECT, self.FieldType.CHOICE}:
+        if self.field_type not in {self.FieldType.SINGLE_SELECT, self.FieldType.MULTI_SELECT}:
             return []
         if isinstance(self.choices, str):
             return [choice.strip() for choice in self.choices.split(',') if choice.strip()]
@@ -445,7 +445,7 @@ class CustomFieldValue(models.Model):
             return self.value_text
         if field_type == CustomFieldDefinition.FieldType.LONG_TEXT:
             return self.value_long_text
-        if field_type in {CustomFieldDefinition.FieldType.INTEGER, CustomFieldDefinition.FieldType.NUMBER}:
+        if field_type == CustomFieldDefinition.FieldType.INTEGER:
             return self.value_integer
         if field_type == CustomFieldDefinition.FieldType.DECIMAL:
             return self.value_decimal
@@ -455,7 +455,7 @@ class CustomFieldValue(models.Model):
             if self.value_boolean is None:
                 return ''
             return 'Yes' if self.value_boolean else 'No'
-        if field_type in {CustomFieldDefinition.FieldType.SINGLE_SELECT, CustomFieldDefinition.FieldType.CHOICE}:
+        if field_type == CustomFieldDefinition.FieldType.SINGLE_SELECT:
             return self.value_single_select
         if field_type == CustomFieldDefinition.FieldType.MULTI_SELECT:
             return ', '.join(self.value_multi_select or [])
