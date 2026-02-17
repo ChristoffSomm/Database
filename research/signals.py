@@ -9,6 +9,8 @@ from .models import (
     File,
     Location,
     Organism,
+    Organization,
+    OrganizationMembership,
     Plasmid,
     ResearchDatabase,
     Strain,
@@ -109,4 +111,16 @@ def ensure_creator_owns_database(sender, instance, created, **kwargs):
         user=instance.created_by,
         research_database=instance,
         defaults={'role': DatabaseMembership.Role.OWNER},
+    )
+
+
+@receiver(post_save, sender=Organization)
+def ensure_creator_admins_organization(sender, instance, created, **kwargs):
+    if not created or not instance.created_by_id:
+        return
+
+    OrganizationMembership.objects.get_or_create(
+        user=instance.created_by,
+        organization=instance,
+        defaults={'role': OrganizationMembership.Role.ADMIN},
     )

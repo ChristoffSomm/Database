@@ -15,11 +15,13 @@
       <nav class="space-y-2 text-sm font-medium">
         {% if active_database %}
           <a href="{% url 'dashboard' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Dashboard — {{ active_database.name }}</a>
+          <a href="{% url 'organization-members' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Organization Members</a>
           <a href="{% url 'strain-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Strains</a>
           <a href="{% url 'activity-feed' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Activity</a>
           <a href="{% url 'membership-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Memberships</a>
           <a href="/admin/" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Admin</a>
         {% endif %}
+        <a href="{% url 'organization-list' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Organizations</a>
         <a href="{% url 'database-select' %}" class="block rounded-md px-3 py-2 text-slate-200 transition hover:bg-card-bg hover:text-primary">Select Database</a>
         <form method="post" action="{% url 'logout' %}">
           {% csrf_token %}
@@ -46,6 +48,7 @@
               class="w-80 rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-400 focus:border-primary focus:outline-none"
             >
           </form>
+          {% include 'research/partials/organization_switch_button.html' %}
           {% include 'research/partials/database_switch_button.html' %}
           <details class="relative">
             <summary class="flex cursor-pointer list-none items-center gap-3 rounded-md border border-slate-700 bg-card-bg px-3 py-1.5 text-sm text-slate-200">

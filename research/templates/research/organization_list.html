@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Organizations | Strain DB{% endblock %}
+{% block header_title %}Organizations{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl rounded-xl border border-slate-700 bg-card-bg p-6">
+  <div class="mb-4 flex items-center justify-between">
+    <h2 class="text-2xl font-bold">Your Organizations</h2>
+    <a href="{% url 'organization-create' %}" class="rounded bg-primary px-4 py-2 font-semibold text-black">Create Organization</a>
+  </div>
+  <div class="space-y-3">
+    {% for membership in memberships %}
+      <form method="post" action="{% url 'organization-switch' %}" class="flex items-center justify-between rounded border border-slate-700 bg-slate-900/40 p-4">
+        {% csrf_token %}
+        <div>
+          <p class="font-semibold text-slate-100">{{ membership.organization.name }}</p>
+          <p class="mt-1 text-xs uppercase tracking-wide text-primary">Role: {{ membership.get_role_display }}</p>
+        </div>
+        <div class="flex gap-2">
+          {% if membership.organization.id == active_organization.id %}
+            <span class="rounded border border-primary/60 bg-primary/10 px-3 py-2 text-sm text-primary">Active</span>
+          {% else %}
+            <input type="hidden" name="organization_id" value="{{ membership.organization.id }}">
+            <button type="submit" class="rounded bg-primary px-4 py-2 font-semibold text-black">Switch</button>
+          {% endif %}
+        </div>
+      </form>
+    {% empty %}
+      <p class="text-slate-300">You are not yet a member of any organization.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

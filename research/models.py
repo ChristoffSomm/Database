@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 import os
+from django.utils.text import slugify
 
 from django.db import models
 from django.urls import reverse
@@ -8,7 +9,58 @@ from django.utils import timezone
 User = get_user_model()
 
 
+class Organization(models.Model):
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=200, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_organizations')
+
+    class Meta:
+        ordering = ['name']
+        indexes = [models.Index(fields=['slug']), models.Index(fields=['created_at'])]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    def get_user_role(self, user):
+        if not user or not getattr(user, 'is_authenticated', False):
+            return None
+        membership = self.memberships.filter(user=user).only('role').first()
+        return membership.role if membership else None
+
+    def can_manage_members(self, user):
+        return self.get_user_role(user) == OrganizationMembership.Role.ADMIN
+
+    def can_add_databases(self, user):
+        return self.get_user_role(user) == OrganizationMembership.Role.ADMIN
+
+
+class OrganizationMembership(models.Model):
+    class Role(models.TextChoices):
+        ADMIN = 'admin', 'Admin'
+        MEMBER = 'member', 'Member'
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='organization_memberships')
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='memberships')
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.MEMBER, db_index=True)
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'organization')
+        ordering = ['organization__name', 'user__username']
+        indexes = [models.Index(fields=['organization', 'role']), models.Index(fields=['user', 'organization'])]
+
+    def __str__(self):
+        return f'{self.user} @ {self.organization} ({self.role})'
+
+
 class ResearchDatabase(models.Model):
+    organization = models.ForeignKey('Organization', on_delete=models.CASCADE, related_name='databases')
     name = models.CharField(max_length=200, db_index=True)
     description = models.TextField(blank=True)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_research_databases')
@@ -20,6 +72,15 @@ class ResearchDatabase(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if self.organization_id is None and self.created_by_id:
+            organization, _created = Organization.objects.get_or_create(
+                slug=f'user-{self.created_by_id}',
+                defaults={'name': f'{self.created_by.username} Organization', 'created_by': self.created_by},
+            )
+            self.organization = organization
+        super().save(*args, **kwargs)
 
     def get_user_role(self, user):
         if not user or not getattr(user, 'is_authenticated', False):

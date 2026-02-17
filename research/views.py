@@ -15,18 +15,29 @@ from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from django.utils import timezone
+from django.utils.text import slugify
 
 from .forms import (
     BulkEditStrainsForm,
     CSVUploadForm,
     CustomFieldDefinitionForm,
     GlobalSearchForm,
+    OrganizationForm,
+    OrganizationMembershipForm,
     SavedViewForm,
     StrainAttachmentUploadForm,
     StrainForm,
 )
 from .filtering import apply_filters
-from .helpers import SESSION_DATABASE_KEY, format_action, get_active_database, get_custom_field_definitions, get_custom_field_values
+from .helpers import (
+    SESSION_DATABASE_KEY,
+    SESSION_ORGANIZATION_KEY,
+    format_action,
+    get_active_database,
+    get_active_organization,
+    get_custom_field_definitions,
+    get_custom_field_values,
+)
 from .import_utils import (
     STANDARD_IMPORT_FIELDS,
     build_mapped_rows,
@@ -41,6 +52,8 @@ from .models import (
     CustomFieldValue,
     DatabaseMembership,
     File,
+    Organization,
+    OrganizationMembership,
     Location,
     Organism,
     Plasmid,
@@ -82,9 +95,112 @@ class AdminRequiredMixin(DatabasePermissionMixin):
     required_permission = 'admin'
 
 
+class OrganizationAdminRequiredMixin(LoginRequiredMixin):
+    def dispatch(self, request, *args, **kwargs):
+        organization = getattr(request, 'active_organization', None) or get_active_organization(request)
+        if organization is None:
+            return HttpResponseForbidden('No active organization selected.')
+        if organization.get_user_role(request.user) != OrganizationMembership.Role.ADMIN:
+            return HttpResponseForbidden('Organization admin permission required.')
+        return super().dispatch(request, *args, **kwargs)
+
+
 def _can_delete_attachments(database, user):
     role = database.get_user_role(user)
     return role in {DatabaseMembership.Role.OWNER, DatabaseMembership.Role.ADMIN}
+
+
+class OrganizationListView(LoginRequiredMixin, TemplateView):
+    template_name = 'research/organization_list.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['memberships'] = OrganizationMembership.objects.select_related('organization').filter(
+            user=self.request.user
+        ).order_by('organization__name')
+        context['active_organization'] = getattr(self.request, 'active_organization', None) or get_active_organization(self.request)
+        return context
+
+
+class OrganizationCreateView(LoginRequiredMixin, CreateView):
+    model = Organization
+    form_class = OrganizationForm
+    template_name = 'research/organization_form.html'
+
+    def form_valid(self, form):
+        if not self.request.user.is_staff:
+            return HttpResponseForbidden('Only admin users can create organizations.')
+        form.instance.created_by = self.request.user
+        response = super().form_valid(form)
+        OrganizationMembership.objects.get_or_create(
+            user=self.request.user,
+            organization=self.object,
+            defaults={'role': OrganizationMembership.Role.ADMIN},
+        )
+        self.request.session[SESSION_ORGANIZATION_KEY] = self.object.id
+        messages.success(self.request, f'Organization "{self.object.name}" created successfully.')
+        return response
+
+    def get_success_url(self):
+        return reverse('organization-members')
+
+
+class OrganizationSwitchView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        org_id = kwargs.get('organization_id') or request.POST.get('organization_id')
+        membership = get_object_or_404(
+            OrganizationMembership,
+            user=request.user,
+            organization_id=org_id,
+        )
+        request.session[SESSION_ORGANIZATION_KEY] = membership.organization_id
+        request.session.pop(SESSION_DATABASE_KEY, None)
+        return redirect(request.POST.get('next') or request.META.get('HTTP_REFERER') or reverse('dashboard'))
+
+
+class OrganizationMembersView(OrganizationAdminRequiredMixin, TemplateView):
+    template_name = 'research/organization_members.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        organization = getattr(self.request, 'active_organization', None) or get_active_organization(self.request)
+        context['organization'] = organization
+        context['memberships'] = OrganizationMembership.objects.select_related('user').filter(
+            organization=organization
+        ).order_by('user__username')
+        context['form'] = OrganizationMembershipForm()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        organization = getattr(request, 'active_organization', None) or get_active_organization(request)
+        form = OrganizationMembershipForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, form.errors.as_text())
+            return redirect('organization-members')
+
+        username = (form.cleaned_data.get('username') or '').strip()
+        email = (form.cleaned_data.get('email') or '').strip()
+        role = form.cleaned_data['role']
+
+        user_qs = User.objects.all()
+        user = user_qs.filter(username__iexact=username).first() if username else None
+        if user is None and email:
+            user = user_qs.filter(email__iexact=email).first()
+
+        if user is None:
+            messages.warning(request, f'Invite stub: no local user exists for {email or username}.')
+            return redirect('organization-members')
+
+        membership, created = OrganizationMembership.objects.get_or_create(
+            user=user,
+            organization=organization,
+            defaults={'role': role},
+        )
+        if not created:
+            membership.role = role
+            membership.save(update_fields=['role'])
+        messages.success(request, f'Organization member updated: {user.username}.')
+        return redirect('organization-members')
 
 
 class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
@@ -223,6 +339,9 @@ class DashboardView(LoginRequiredMixin, DatabasePermissionMixin, TemplateView):
                 'counts': [item['total'] for item in metrics['strains_by_month']],
             }
         )
+        active_organization = getattr(self.request, 'active_organization', None) or get_active_organization(self.request)
+        context['active_organization'] = active_organization
+        context['organization_database_count'] = ResearchDatabase.objects.filter(organization=active_organization).count() if active_organization else 0
         context['strain_count'] = metrics['total_strains']
         context['archived_count'] = metrics['total_archived']
         context['can_edit'] = active_database.can_edit(self.request.user)
@@ -240,7 +359,23 @@ class CreateDatabaseView(LoginRequiredMixin, CreateView):
     fields = ['name', 'description']
 
     def form_valid(self, form):
+        active_organization = getattr(self.request, 'active_organization', None) or get_active_organization(self.request)
+        if active_organization is None:
+            slug = slugify(f'user-{self.request.user.username}-org')
+            active_organization, _ = Organization.objects.get_or_create(
+                slug=slug,
+                defaults={'name': f'{self.request.user.username} Organization', 'created_by': self.request.user},
+            )
+            OrganizationMembership.objects.get_or_create(
+                user=self.request.user,
+                organization=active_organization,
+                defaults={'role': OrganizationMembership.Role.ADMIN},
+            )
+            self.request.session[SESSION_ORGANIZATION_KEY] = active_organization.id
+        if active_organization.get_user_role(self.request.user) != OrganizationMembership.Role.ADMIN:
+            return HttpResponseForbidden('Only organization admins can add databases.')
         form.instance.created_by = self.request.user
+        form.instance.organization = active_organization
         response = super().form_valid(form)
         self.request.session[SESSION_DATABASE_KEY] = self.object.id
         messages.success(self.request, f'Database "{self.object.name}" created successfully.')
@@ -255,7 +390,11 @@ class SelectDatabaseView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['memberships'] = DatabaseMembership.objects.select_related('research_database').filter(user=self.request.user)
+        active_organization = getattr(self.request, 'active_organization', None) or get_active_organization(self.request)
+        context['memberships'] = DatabaseMembership.objects.select_related('research_database').filter(
+            user=self.request.user,
+            research_database__organization=active_organization,
+        )
         context['active_database_id'] = self.request.session.get(SESSION_DATABASE_KEY)
         return context
 
@@ -266,6 +405,7 @@ def switch_database(request, database_id):
         ResearchDatabase,
         id=database_id,
         memberships__user=request.user,
+        organization=getattr(request, 'active_organization', None) or get_active_organization(request),
     )
     request.session[SESSION_DATABASE_KEY] = database.id
     next_url = request.META.get('HTTP_REFERER') or reverse('dashboard')
@@ -1207,7 +1347,23 @@ class StrainCreateView(LoginRequiredMixin, EditorRequiredMixin, CreateView):
         return kwargs
 
     def form_valid(self, form):
+        active_organization = getattr(self.request, 'active_organization', None) or get_active_organization(self.request)
+        if active_organization is None:
+            slug = slugify(f'user-{self.request.user.username}-org')
+            active_organization, _ = Organization.objects.get_or_create(
+                slug=slug,
+                defaults={'name': f'{self.request.user.username} Organization', 'created_by': self.request.user},
+            )
+            OrganizationMembership.objects.get_or_create(
+                user=self.request.user,
+                organization=active_organization,
+                defaults={'role': OrganizationMembership.Role.ADMIN},
+            )
+            self.request.session[SESSION_ORGANIZATION_KEY] = active_organization.id
+        if active_organization.get_user_role(self.request.user) != OrganizationMembership.Role.ADMIN:
+            return HttpResponseForbidden('Only organization admins can add databases.')
         form.instance.created_by = self.request.user
+        form.instance.organization = active_organization
         response = super().form_valid(form)
         messages.success(self.request, f'Strain {self.object.strain_id} created successfully.')
         return response

@@ -4,13 +4,15 @@ from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 from django.urls import reverse
 
-from .helpers import SESSION_DATABASE_KEY
+from .helpers import SESSION_DATABASE_KEY, SESSION_ORGANIZATION_KEY
 from .models import (
     AuditLog,
     CustomFieldDefinition,
     CustomFieldValue,
     DatabaseMembership,
     Location,
+    Organization,
+    OrganizationMembership,
     Organism,
     ResearchDatabase,
     Strain,
@@ -689,3 +691,43 @@ class StrainArchiveWorkflowTests(TestCase):
 
         response = self.client.post(reverse('strain-hard-delete', kwargs={'pk': self.strain.pk}))
         self.assertEqual(response.status_code, 403)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class OrganizationAccessTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='org-user', password='pass123', is_staff=True)
+        self.other = User.objects.create_user(username='org-other', password='pass123')
+
+        self.org_a = Organization.objects.create(name='Org A', slug='org-a', created_by=self.user)
+        self.org_b = Organization.objects.create(name='Org B', slug='org-b', created_by=self.user)
+        OrganizationMembership.objects.update_or_create(user=self.user, organization=self.org_a, defaults={'role': OrganizationMembership.Role.ADMIN})
+        OrganizationMembership.objects.update_or_create(user=self.user, organization=self.org_b, defaults={'role': OrganizationMembership.Role.ADMIN})
+
+        self.db_a = ResearchDatabase.objects.create(name='OrgA-DB', organization=self.org_a, created_by=self.user)
+        self.db_b = ResearchDatabase.objects.create(name='OrgB-DB', organization=self.org_b, created_by=self.user)
+        DatabaseMembership.objects.update_or_create(user=self.user, research_database=self.db_a, defaults={'role': DatabaseMembership.Role.ADMIN})
+        DatabaseMembership.objects.update_or_create(user=self.user, research_database=self.db_b, defaults={'role': DatabaseMembership.Role.ADMIN})
+
+    def test_database_select_only_shows_active_organization_databases(self):
+        self.client.force_login(self.user)
+        session = self.client.session
+        session[SESSION_ORGANIZATION_KEY] = self.org_a.id
+        session.save()
+
+        response = self.client.get(reverse('database-select'))
+        self.assertContains(response, 'OrgA-DB')
+        self.assertNotContains(response, 'OrgB-DB')
+
+    def test_switch_organization_resets_active_database(self):
+        self.client.force_login(self.user)
+        session = self.client.session
+        session[SESSION_ORGANIZATION_KEY] = self.org_a.id
+        session[SESSION_DATABASE_KEY] = self.db_a.id
+        session.save()
+
+        response = self.client.post(reverse('organization-switch-id', kwargs={'organization_id': self.org_b.id}))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session.get(SESSION_ORGANIZATION_KEY), self.org_b.id)
+        self.assertIsNone(self.client.session.get(SESSION_DATABASE_KEY))
