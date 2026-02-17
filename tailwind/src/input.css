@@ -2,6 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  input,
+  textarea,
+  select {
+    @apply rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-gray-100 outline-none;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus {
+    @apply border-emerald-500 ring-2 ring-emerald-500/30;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-gray-400;
+  }
+
+  select {
+    @apply bg-gray-800 text-gray-100;
+  }
+
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    @apply cursor-not-allowed opacity-60;
+  }
+}
+
 @layer components {
   .app-card {
     @apply bg-gray-800;
