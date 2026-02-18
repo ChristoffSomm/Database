@@ -8,14 +8,15 @@ npm run build:css
 npm run watch:css
 ```
 
-## Run locally
+## 🚀 Running StrainDB (Development)
+
+This project includes an automated setup script.
+
+### First-time setup
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py createsuperuser
-python manage.py runserver
+chmod +x setup_and_start.sh
+./setup_and_start.sh
 ```
 
 ## PostgreSQL environment

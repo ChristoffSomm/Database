@@ -413,6 +413,47 @@ class CSVImportTests(TestCase):
         session[SESSION_DATABASE_KEY] = self.database.id
         session.save()
 
+
+    def test_unknown_organism_is_auto_created_during_import(self):
+        self.client.force_login(self.owner)
+        self._set_active_database()
+
+        csv_content = "strain_id,organism,genotype,location\nS-200,New Organism,WT,Box 1 A1\n"
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile('auto-create.csv', csv_content.encode('utf-8'), content_type='text/csv')
+
+        upload_response = self.client.post(reverse('csv_upload'), {'action': 'upload', 'file': upload})
+        self.assertEqual(upload_response.status_code, 302)
+
+        mapping_response = self.client.post(
+            reverse('csv_upload'),
+            {
+                'action': 'mapping',
+                'map_strain_id': 'strain_id',
+                'map_organism': 'organism',
+                'map_genotype': 'genotype',
+                'map_location': 'location',
+            },
+        )
+        self.assertEqual(mapping_response.status_code, 302)
+
+        confirm_response = self.client.post(reverse('csv_upload'), {'action': 'confirm_import'})
+        self.assertRedirects(confirm_response, reverse('strain-list'))
+
+        organism = Organism.objects.get(research_database=self.database, name='New Organism')
+        strain = Strain.objects.get(research_database=self.database, strain_id='S-200')
+        self.assertEqual(strain.organism, organism.name)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                database=self.database,
+                action='AUTO_CREATE_ORGANISM',
+                object_type='Organism',
+                object_id=organism.id,
+                metadata__organism='New Organism',
+            ).exists()
+        )
+
     def test_viewer_cannot_access_csv_import(self):
         self.client.force_login(self.viewer)
         self._set_active_database()

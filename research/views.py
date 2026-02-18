@@ -49,6 +49,7 @@ from .import_utils import (
     build_mapped_rows,
     import_strains_from_csv_rows,
     parse_csv_upload,
+    get_import_row_warnings,
     validate_import_row,
 )
 from .models import (
@@ -1347,6 +1348,7 @@ class CSVUploadView(LoginRequiredMixin, EditorRequiredMixin, TemplateView):
                     'row_number': index + 1,
                     'cells': [mapped_row.get(field_name, '') for field_name in mapped_field_names],
                     'errors': row_errors,
+                    'warnings': get_import_row_warnings(mapped_row, active_database),
                 }
             )
 

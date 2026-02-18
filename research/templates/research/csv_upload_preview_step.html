@@ -15,7 +15,7 @@
       </thead>
       <tbody class="divide-y divide-slate-700">
         {% for entry in preview_entries %}
-          <tr class="{% if entry.errors %}bg-red-500/10{% else %}hover:bg-slate-700/30{% endif %}">
+          <tr class="{% if entry.errors %}bg-red-500/10{% elif entry.warnings %}bg-amber-500/10{% else %}hover:bg-slate-700/30{% endif %}">
             <td class="px-3 py-2 text-slate-400">{{ entry.row_number }}</td>
             {% for cell in entry.cells %}
               <td class="px-3 py-2">{{ cell|default:'—' }}</td>
@@ -28,7 +28,17 @@
                   {% endfor %}
                 </ul>
               {% else %}
-                <span class="text-xs text-green-300">Looks good</span>
+                {% if entry.warnings %}
+                  <ul class="space-y-1">
+                    {% for warning in entry.warnings %}
+                      <li>
+                        <span class="inline-flex items-center rounded-full border border-amber-500/50 bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">Auto-created organism</span>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <span class="text-xs text-green-300">Looks good</span>
+                {% endif %}
               {% endif %}
             </td>
           </tr>
