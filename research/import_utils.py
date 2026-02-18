@@ -3,9 +3,10 @@ import io
 from datetime import datetime
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.db import transaction
 
-from .models import CustomFieldDefinition, CustomFieldValue, Plasmid, Strain
+from .models import AuditLog, CustomFieldDefinition, CustomFieldValue, Organism, Plasmid, Strain
 
 STANDARD_IMPORT_FIELDS = [
     ('strain_id', 'Strain ID'),
@@ -82,10 +83,6 @@ def validate_import_row(mapped_row, active_database, custom_definitions_by_name)
         if not mapped_row.get(required):
             errors.append(f'Missing required field: {required}.')
 
-    organism_name = mapped_row.get('organism')
-    if organism_name and organism_name not in dict(Strain.ORGANISM_CHOICES):
-        errors.append(f'Unknown organism: "{organism_name}".')
-
     location_string = mapped_row.get('location')
     if location_string and not parse_location_value(location_string):
         errors.append('Location must be in "Box <number> <row><column>" format.')
@@ -111,6 +108,32 @@ def validate_import_row(mapped_row, active_database, custom_definitions_by_name)
     return errors
 
 
+def get_or_create_organism_for_import(name, database):
+    normalized_name = (name or '').strip()
+    if not normalized_name:
+        return None, False
+
+    existing = Organism.objects.filter(research_database=database, name__iexact=normalized_name).first()
+    if existing:
+        return existing, False
+
+    try:
+        return Organism.objects.create(research_database=database, name=normalized_name), True
+    except IntegrityError:
+        existing = Organism.objects.filter(research_database=database, name__iexact=normalized_name).first()
+        if existing:
+            return existing, False
+        raise
+
+
+def get_import_row_warnings(mapped_row, active_database):
+    warnings = []
+    organism_name = (mapped_row.get('organism') or '').strip()
+    if organism_name and not Organism.objects.filter(research_database=active_database, name__iexact=organism_name).exists():
+        warnings.append('Organism auto-created during import')
+    return warnings
+
+
 def build_mapped_rows(rows, column_mapping):
     mapped_rows = []
     for row in rows:
@@ -129,63 +152,83 @@ def import_strains_from_csv_rows(*, active_database, user, mapped_rows, custom_d
 
     with transaction.atomic():
         for mapped_row in mapped_rows:
-            strain_id = (mapped_row.get('strain_id') or '').strip()
-            if not strain_id:
+            try:
+                with transaction.atomic():
+                    strain_id = (mapped_row.get('strain_id') or '').strip()
+                    if not strain_id:
+                        skipped_count += 1
+                        continue
+
+                    if Strain.all_objects.filter(research_database=active_database, strain_id__iexact=strain_id).exists():
+                        skipped_count += 1
+                        continue
+
+                    validation_errors = validate_import_row(mapped_row, active_database, custom_definitions_by_name)
+                    if validation_errors:
+                        skipped_count += 1
+                        continue
+
+                    location = parse_location_value(mapped_row['location'])
+                    if location is None:
+                        skipped_count += 1
+                        continue
+
+                    organism, created = get_or_create_organism_for_import(mapped_row.get('organism'), active_database)
+                    if organism is None:
+                        skipped_count += 1
+                        continue
+
+                    if created:
+                        AuditLog.objects.create(
+                            database=active_database,
+                            user=user,
+                            action='AUTO_CREATE_ORGANISM',
+                            object_type='Organism',
+                            object_id=organism.id,
+                            metadata={'organism': organism.name},
+                        )
+
+                    strain = Strain.objects.create(
+                        research_database=active_database,
+                        strain_id=strain_id,
+                        name=strain_id,
+                        organism=organism.name,
+                        genotype=(mapped_row.get('genotype') or '').strip(),
+                        selective_marker=(mapped_row.get('selective_marker') or '').strip(),
+                        comments=(mapped_row.get('comments') or '').strip(),
+                        location=location,
+                        created_by=user,
+                    )
+
+                    plasmids_value = (mapped_row.get('plasmids') or '').strip()
+                    if plasmids_value:
+                        plasmid_names = [name.strip() for name in plasmids_value.split(',') if name.strip()]
+                        plasmids = list(Plasmid.objects.filter(research_database=active_database, name__in=plasmid_names))
+                        if plasmids:
+                            strain.plasmids.set(plasmids)
+
+                    for field_name, raw_value in mapped_row.items():
+                        if not field_name.startswith('custom:'):
+                            continue
+                        definition_name = field_name.split(':', 1)[1]
+                        definition = custom_definitions_by_name.get(definition_name)
+                        if not definition:
+                            continue
+                        value_attr, parsed_value = parse_custom_field_value(definition, raw_value)
+                        if not value_attr:
+                            continue
+                        custom_value, _ = CustomFieldValue.objects.get_or_create(strain=strain, field_definition=definition)
+                        custom_value.value_text = None
+                        custom_value.value_number = None
+                        custom_value.value_date = None
+                        custom_value.value_boolean = None
+                        custom_value.value_choice = None
+                        setattr(custom_value, value_attr, parsed_value)
+                        custom_value.save()
+
+                    created_count += 1
+            except Exception:  # noqa: BLE001
                 skipped_count += 1
                 continue
-
-            if Strain.all_objects.filter(research_database=active_database, strain_id__iexact=strain_id).exists():
-                skipped_count += 1
-                continue
-
-            validation_errors = validate_import_row(mapped_row, active_database, custom_definitions_by_name)
-            if validation_errors:
-                skipped_count += 1
-                continue
-
-            location = parse_location_value(mapped_row['location'])
-            if location is None:
-                skipped_count += 1
-                continue
-
-            strain = Strain.objects.create(
-                research_database=active_database,
-                strain_id=strain_id,
-                name=strain_id,
-                organism=mapped_row['organism'],
-                genotype=(mapped_row.get('genotype') or '').strip(),
-                selective_marker=(mapped_row.get('selective_marker') or '').strip(),
-                comments=(mapped_row.get('comments') or '').strip(),
-                location=location,
-                created_by=user,
-            )
-
-            plasmids_value = (mapped_row.get('plasmids') or '').strip()
-            if plasmids_value:
-                plasmid_names = [name.strip() for name in plasmids_value.split(',') if name.strip()]
-                plasmids = list(Plasmid.objects.filter(research_database=active_database, name__in=plasmid_names))
-                if plasmids:
-                    strain.plasmids.set(plasmids)
-
-            for field_name, raw_value in mapped_row.items():
-                if not field_name.startswith('custom:'):
-                    continue
-                definition_name = field_name.split(':', 1)[1]
-                definition = custom_definitions_by_name.get(definition_name)
-                if not definition:
-                    continue
-                value_attr, parsed_value = parse_custom_field_value(definition, raw_value)
-                if not value_attr:
-                    continue
-                custom_value, _ = CustomFieldValue.objects.get_or_create(strain=strain, field_definition=definition)
-                custom_value.value_text = None
-                custom_value.value_number = None
-                custom_value.value_date = None
-                custom_value.value_boolean = None
-                custom_value.value_choice = None
-                setattr(custom_value, value_attr, parsed_value)
-                custom_value.save()
-
-            created_count += 1
 
     return created_count, skipped_count
