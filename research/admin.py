@@ -1,5 +1,9 @@
 from django.contrib import admin
 
+admin.site.site_header = "HelixMapr Administration"
+admin.site.site_title = "HelixMapr Admin"
+admin.site.index_title = "HelixMapr Control Panel"
+
 from .helpers import SESSION_DATABASE_KEY
 from .models import (
     ActivityLog,
