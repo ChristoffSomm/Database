@@ -87,13 +87,6 @@ def validate_import_row(mapped_row, active_database, custom_definitions_by_name)
     if location_string and not parse_location_value(location_string):
         errors.append('Location must be in "Box <number> <row><column>" format.')
 
-    plasmids_value = mapped_row.get('plasmids')
-    if plasmids_value:
-        plasmid_names = [name.strip() for name in plasmids_value.split(',') if name.strip()]
-        for plasmid_name in plasmid_names:
-            if not Plasmid.objects.filter(research_database=active_database, name=plasmid_name).exists():
-                errors.append(f'Unknown plasmid: "{plasmid_name}".')
-
     for field_name, raw_value in mapped_row.items():
         if field_name.startswith('custom:'):
             definition_name = field_name.split(':', 1)[1]
@@ -108,22 +101,31 @@ def validate_import_row(mapped_row, active_database, custom_definitions_by_name)
     return errors
 
 
-def get_or_create_organism_for_import(name, database):
-    normalized_name = (name or '').strip()
-    if not normalized_name:
-        return None, False
+def resolve_fk(model, database, value, field_name='name'):
+    """Resolve a database-scoped related object by name, auto-creating when needed.
 
-    existing = Organism.objects.filter(research_database=database, name__iexact=normalized_name).first()
+    Uses case-insensitive matching and retries lookup on integrity collisions to
+    avoid duplicates under concurrent imports.
+    """
+
+    if not value:
+        return None
+
+    normalized_value = value.strip()
+    if not normalized_value:
+        return None
+
+    database_filter = {'research_database': database}
+    lookup = {f'{field_name}__iexact': normalized_value}
+
+    existing = model.objects.filter(**database_filter, **lookup).first()
     if existing:
-        return existing, False
+        return existing
 
     try:
-        return Organism.objects.create(research_database=database, name=normalized_name), True
+        return model.objects.create(**database_filter, **{field_name: normalized_value})
     except IntegrityError:
-        existing = Organism.objects.filter(research_database=database, name__iexact=normalized_name).first()
-        if existing:
-            return existing, False
-        raise
+        return model.objects.filter(**database_filter, **lookup).first()
 
 
 def get_import_row_warnings(mapped_row, active_database):
@@ -173,12 +175,17 @@ def import_strains_from_csv_rows(*, active_database, user, mapped_rows, custom_d
                         skipped_count += 1
                         continue
 
-                    organism, created = get_or_create_organism_for_import(mapped_row.get('organism'), active_database)
+                    organism_name = (mapped_row.get('organism') or '').strip()
+                    organism_exists = Organism.objects.filter(
+                        research_database=active_database,
+                        name__iexact=organism_name,
+                    ).exists()
+                    organism = resolve_fk(Organism, active_database, organism_name)
                     if organism is None:
                         skipped_count += 1
                         continue
 
-                    if created:
+                    if not organism_exists:
                         AuditLog.objects.create(
                             database=active_database,
                             user=user,
@@ -203,9 +210,10 @@ def import_strains_from_csv_rows(*, active_database, user, mapped_rows, custom_d
                     plasmids_value = (mapped_row.get('plasmids') or '').strip()
                     if plasmids_value:
                         plasmid_names = [name.strip() for name in plasmids_value.split(',') if name.strip()]
-                        plasmids = list(Plasmid.objects.filter(research_database=active_database, name__in=plasmid_names))
-                        if plasmids:
-                            strain.plasmids.set(plasmids)
+                        for plasmid_name in plasmid_names:
+                            plasmid = resolve_fk(Plasmid, active_database, plasmid_name)
+                            if plasmid:
+                                strain.plasmids.add(plasmid)
 
                     for field_name, raw_value in mapped_row.items():
                         if not field_name.startswith('custom:'):
