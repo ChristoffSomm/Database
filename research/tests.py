@@ -454,6 +454,39 @@ class CSVImportTests(TestCase):
             ).exists()
         )
 
+    def test_unknown_plasmids_are_auto_created_during_import(self):
+        self.client.force_login(self.owner)
+        self._set_active_database()
+
+        csv_content = "strain_id,organism,genotype,location,plasmids\nS-201,E. coli,WT,Box 1 A1,\"pABC,pXYZ\"\n"
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile('auto-create-plasmids.csv', csv_content.encode('utf-8'), content_type='text/csv')
+
+        upload_response = self.client.post(reverse('csv_upload'), {'action': 'upload', 'file': upload})
+        self.assertEqual(upload_response.status_code, 302)
+
+        mapping_response = self.client.post(
+            reverse('csv_upload'),
+            {
+                'action': 'mapping',
+                'map_strain_id': 'strain_id',
+                'map_organism': 'organism',
+                'map_genotype': 'genotype',
+                'map_location': 'location',
+                'map_plasmids': 'plasmids',
+            },
+        )
+        self.assertEqual(mapping_response.status_code, 302)
+
+        confirm_response = self.client.post(reverse('csv_upload'), {'action': 'confirm_import'})
+        self.assertRedirects(confirm_response, reverse('strain-list'))
+
+        strain = Strain.objects.get(research_database=self.database, strain_id='S-201')
+        self.assertEqual(strain.plasmids.count(), 2)
+        self.assertTrue(Plasmid.objects.filter(research_database=self.database, name='pABC').exists())
+        self.assertTrue(Plasmid.objects.filter(research_database=self.database, name='pXYZ').exists())
+
     def test_viewer_cannot_access_csv_import(self):
         self.client.force_login(self.viewer)
         self._set_active_database()
