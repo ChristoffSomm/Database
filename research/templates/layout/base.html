@@ -115,29 +115,19 @@
         const targetId = toggle.dataset.target;
         const section = document.getElementById(targetId);
         const icon = toggle.querySelector("svg");
+        if (!section) return;
 
-        if (!section || !icon) return;
-
-        // Restore saved state
-        const saved = localStorage.getItem("sidebar-" + targetId);
+        const key = "sidebar-" + targetId;
+        const saved = localStorage.getItem(key);
         if (saved === "collapsed") {
           section.classList.add("hidden");
-          icon.classList.add("rotate-180");
-          toggle.setAttribute("aria-expanded", "false");
-        } else {
-          toggle.setAttribute("aria-expanded", "true");
+          if (icon) icon.classList.add("rotate-180");
         }
 
-        toggle.addEventListener("click", function () {
+        toggle.addEventListener("click", () => {
           section.classList.toggle("hidden");
-          icon.classList.toggle("rotate-180");
-
-          const collapsed = section.classList.contains("hidden");
-          toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-          localStorage.setItem(
-            "sidebar-" + targetId,
-            collapsed ? "collapsed" : "open"
-          );
+          if (icon) icon.classList.toggle("rotate-180");
+          localStorage.setItem(key, section.classList.contains("hidden") ? "collapsed" : "open");
         });
       });
     });
