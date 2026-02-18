@@ -30,45 +30,81 @@
         </div>
       </section>
 
-      {# DATA group: expanded by default. #}
-      <section class="sidebar-collapsible" data-sidebar-group="data" data-default-open="true">
-        <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-expanded="true">
-          <span class="sidebar-group-heading mb-0">Data</span>
-          <span class="sidebar-chevron" aria-hidden="true">▾</span>
+      <div class="sidebar-section">
+        <button
+          type="button"
+          class="sidebar-toggle flex items-center justify-between w-full px-3 py-2 text-xs uppercase tracking-wider text-gray-400 hover:text-white"
+          data-target="data-section"
+          aria-expanded="true"
+        >
+          <span>DATA</span>
+          <svg
+            class="w-3 h-3 transition-transform duration-200"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
         </button>
-        <div class="sidebar-panel mt-2 space-y-1" data-sidebar-panel>
+        <div id="data-section" class="sidebar-collapse mt-2 space-y-1">
           <a href="{% url 'organism_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'organism_list' %}sidebar-link-active{% endif %}">Organisms</a>
           <a href="{% url 'plasmid_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'plasmid_list' %}sidebar-link-active{% endif %}">Plasmids</a>
           <a href="{% url 'location_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'location_list' %}sidebar-link-active{% endif %}">Locations</a>
           <a href="{% url 'file_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'file_list' %}sidebar-link-active{% endif %}">Files</a>
         </div>
-      </section>
+      </div>
 
-      {# TEAM group: collapsed by default. #}
-      <section class="sidebar-collapsible" data-sidebar-group="team" data-default-open="false">
-        <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-expanded="false">
-          <span class="sidebar-group-heading mb-0">Team</span>
-          <span class="sidebar-chevron" aria-hidden="true">▸</span>
+      <div class="sidebar-section">
+        <button
+          type="button"
+          class="sidebar-toggle flex items-center justify-between w-full px-3 py-2 text-xs uppercase tracking-wider text-gray-400 hover:text-white"
+          data-target="team-section"
+          aria-expanded="true"
+        >
+          <span>TEAM</span>
+          <svg
+            class="w-3 h-3 transition-transform duration-200"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
         </button>
-        <div class="sidebar-panel mt-2 hidden space-y-1" data-sidebar-panel>
+        <div id="team-section" class="sidebar-collapse mt-2 space-y-1">
           <a href="{% url 'organization-members' %}" class="sidebar-link {% if request.resolver_match.url_name == 'organization-members' %}sidebar-link-active{% endif %}">Organization Members</a>
         </div>
-      </section>
+      </div>
 
-      {# ADMINISTRATION group: collapsed by default. #}
-      <section class="sidebar-collapsible" data-sidebar-group="administration" data-default-open="false">
-        <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-expanded="false">
-          <span class="sidebar-group-heading mb-0">Administration</span>
-          <span class="sidebar-chevron" aria-hidden="true">▸</span>
+      <div class="sidebar-section">
+        <button
+          type="button"
+          class="sidebar-toggle flex items-center justify-between w-full px-3 py-2 text-xs uppercase tracking-wider text-gray-400 hover:text-white"
+          data-target="admin-section"
+          aria-expanded="true"
+        >
+          <span>ADMINISTRATION</span>
+          <svg
+            class="w-3 h-3 transition-transform duration-200"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
         </button>
-        <div class="sidebar-panel mt-2 hidden space-y-1" data-sidebar-panel>
+        <div id="admin-section" class="sidebar-collapse mt-2 space-y-1">
           <a href="{% url 'custom_field_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'custom_field_list' or request.resolver_match.url_name == 'custom-field-definition-list' %}sidebar-link-active{% endif %}">Custom Fields</a>
           <a href="{% url 'csv_import' %}" class="sidebar-link {% if request.resolver_match.url_name == 'csv_import' or request.resolver_match.url_name == 'csv_upload' %}sidebar-link-active{% endif %}">Import / Export</a>
           <a href="{% url 'audit_log' %}" class="sidebar-link {% if request.resolver_match.url_name == 'audit_log' %}sidebar-link-active{% endif %}">Audit Log</a>
           <a href="{% url 'database_settings' %}" class="sidebar-link {% if request.resolver_match.url_name == 'database_settings' %}sidebar-link-active{% endif %}">Database Settings</a>
           <a href="{% url 'admin:index' %}" class="sidebar-link {% if request.resolver_match.url_name == 'index' and request.resolver_match.namespace == 'admin' %}sidebar-link-active{% endif %}">Django Admin</a>
         </div>
-      </section>
+      </div>
 
       <section class="pt-3 border-t border-slate-700/80">
         <h3 class="sidebar-group-heading">Global</h3>

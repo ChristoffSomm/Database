@@ -46,27 +46,8 @@
     .sidebar-toggle:hover {
       background-color: rgba(30, 41, 59, 0.45);
     }
-    .sidebar-chevron {
-      color: rgb(148 163 184);
-      transition: transform 180ms ease;
-    }
-    .sidebar-collapsible[data-open="true"] .sidebar-chevron {
-      transform: rotate(0deg);
-    }
-    .sidebar-collapsible[data-open="false"] .sidebar-chevron {
-      transform: rotate(-90deg);
-    }
-    .sidebar-panel {
-      overflow: hidden;
-      transition: max-height 220ms ease, opacity 180ms ease;
-    }
-    .sidebar-panel.is-collapsed {
-      max-height: 0;
-      opacity: 0;
-    }
-    .sidebar-panel.is-expanded {
-      max-height: 20rem;
-      opacity: 1;
+    .sidebar-collapse.hidden {
+      display: none;
     }
   </style>
 </head>
@@ -127,23 +108,37 @@
   {% endif %}
 
   <script>
-    // Minimal vanilla JS for sidebar collapsible sections (no page reload needed).
-    document.addEventListener('DOMContentLoaded', () => {
-      document.querySelectorAll('[data-sidebar-group]').forEach((group) => {
-        const toggle = group.querySelector('[data-sidebar-toggle]');
-        const panel = group.querySelector('[data-sidebar-panel]');
-        const defaultOpen = group.dataset.defaultOpen === 'true';
+    document.addEventListener("DOMContentLoaded", function () {
+      const toggles = document.querySelectorAll(".sidebar-toggle");
 
-        const setState = (isOpen) => {
-          group.dataset.open = isOpen ? 'true' : 'false';
-          toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-          panel.classList.toggle('hidden', !isOpen);
-          panel.classList.toggle('is-collapsed', !isOpen);
-          panel.classList.toggle('is-expanded', isOpen);
-        };
+      toggles.forEach(toggle => {
+        const targetId = toggle.dataset.target;
+        const section = document.getElementById(targetId);
+        const icon = toggle.querySelector("svg");
 
-        setState(defaultOpen);
-        toggle.addEventListener('click', () => setState(group.dataset.open !== 'true'));
+        if (!section || !icon) return;
+
+        // Restore saved state
+        const saved = localStorage.getItem("sidebar-" + targetId);
+        if (saved === "collapsed") {
+          section.classList.add("hidden");
+          icon.classList.add("rotate-180");
+          toggle.setAttribute("aria-expanded", "false");
+        } else {
+          toggle.setAttribute("aria-expanded", "true");
+        }
+
+        toggle.addEventListener("click", function () {
+          section.classList.toggle("hidden");
+          icon.classList.toggle("rotate-180");
+
+          const collapsed = section.classList.contains("hidden");
+          toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+          localStorage.setItem(
+            "sidebar-" + targetId,
+            collapsed ? "collapsed" : "open"
+          );
+        });
       });
     });
   </script>
