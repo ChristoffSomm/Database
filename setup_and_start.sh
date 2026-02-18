@@ -76,6 +76,7 @@ npm run build:css
 log "Running Django migrations..."
 python manage.py makemigrations research || true
 python manage.py migrate
+python manage.py collectstatic --noinput
 
 # ----------------------------------------
 # Superuser setup
