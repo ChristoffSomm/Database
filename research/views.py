@@ -131,6 +131,17 @@ def _can_delete_attachments(database, user):
     return role in {DatabaseMembership.Role.OWNER, DatabaseMembership.Role.ADMIN}
 
 
+class SidebarPlaceholderListView(LoginRequiredMixin, TemplateView):
+    """Simple placeholder pages for new sidebar destinations."""
+
+    template_name = 'research/nav_placeholder_list.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = self.kwargs.get('page_title', 'Section')
+        return context
+
+
 class OrganizationListView(LoginRequiredMixin, TemplateView):
     template_name = 'research/organization_list.html'
 

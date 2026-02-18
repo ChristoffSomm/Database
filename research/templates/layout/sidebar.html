@@ -1,0 +1,85 @@
+{#
+  Reusable sidebar navigation for authenticated pages.
+  - Collapsible sections are controlled by the tiny script in layout/base.html.
+  - Active link style is based on request.resolver_match.url_name checks.
+#}
+<aside class="fixed inset-y-0 left-0 z-30 w-72 border-r border-slate-700/80 bg-slate-900/95 px-4 py-5 shadow-2xl shadow-black/30">
+  <div class="flex h-full flex-col overflow-y-auto pr-1">
+    <div class="mb-5 rounded-lg border border-slate-700/80 bg-slate-800/70 px-4 py-3">
+      <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Active Database</p>
+      <h2 class="mt-1 truncate text-lg font-bold text-slate-100">{{ active_database.name|default:"No database selected" }}</h2>
+      <p class="mt-1 text-xs font-medium uppercase tracking-wide text-primary">StrainDB</p>
+    </div>
+
+    <a
+      href="{% url 'strain_create' %}"
+      class="mb-6 inline-flex w-full items-center justify-center rounded-md border border-primary/40 bg-primary px-3 py-2 text-sm font-semibold text-slate-950 transition hover:opacity-90"
+    >
+      + New Strain
+    </a>
+
+    <nav class="space-y-5 text-sm">
+      {# PRIMARY WORK remains expanded by default (non-collapsible group). #}
+      <section>
+        <h3 class="sidebar-group-heading">Primary Work</h3>
+        <div class="mt-2 space-y-1">
+          <a href="{% url 'dashboard' %}" class="sidebar-link {% if request.resolver_match.url_name == 'dashboard' %}sidebar-link-active{% endif %}">Dashboard</a>
+          <a href="{% url 'search-results' %}" class="sidebar-link {% if request.resolver_match.url_name == 'search-results' %}sidebar-link-active{% endif %}">Search</a>
+          <a href="{% url 'strain_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'strain_list' or request.resolver_match.url_name == 'strain-list' %}sidebar-link-active{% endif %}">Strains</a>
+          <a href="{% url 'activity_log' %}" class="sidebar-link {% if request.resolver_match.url_name == 'activity_log' or request.resolver_match.url_name == 'activity-feed' %}sidebar-link-active{% endif %}">Activity</a>
+        </div>
+      </section>
+
+      {# DATA group: expanded by default. #}
+      <section class="sidebar-collapsible" data-sidebar-group="data" data-default-open="true">
+        <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-expanded="true">
+          <span class="sidebar-group-heading mb-0">Data</span>
+          <span class="sidebar-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="sidebar-panel mt-2 space-y-1" data-sidebar-panel>
+          <a href="{% url 'organism_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'organism_list' %}sidebar-link-active{% endif %}">Organisms</a>
+          <a href="{% url 'plasmid_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'plasmid_list' %}sidebar-link-active{% endif %}">Plasmids</a>
+          <a href="{% url 'location_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'location_list' %}sidebar-link-active{% endif %}">Locations</a>
+          <a href="{% url 'file_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'file_list' %}sidebar-link-active{% endif %}">Files</a>
+        </div>
+      </section>
+
+      {# TEAM group: collapsed by default. #}
+      <section class="sidebar-collapsible" data-sidebar-group="team" data-default-open="false">
+        <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-expanded="false">
+          <span class="sidebar-group-heading mb-0">Team</span>
+          <span class="sidebar-chevron" aria-hidden="true">▸</span>
+        </button>
+        <div class="sidebar-panel mt-2 hidden space-y-1" data-sidebar-panel>
+          <a href="{% url 'organization-members' %}" class="sidebar-link {% if request.resolver_match.url_name == 'organization-members' %}sidebar-link-active{% endif %}">Organization Members</a>
+        </div>
+      </section>
+
+      {# ADMINISTRATION group: collapsed by default. #}
+      <section class="sidebar-collapsible" data-sidebar-group="administration" data-default-open="false">
+        <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-expanded="false">
+          <span class="sidebar-group-heading mb-0">Administration</span>
+          <span class="sidebar-chevron" aria-hidden="true">▸</span>
+        </button>
+        <div class="sidebar-panel mt-2 hidden space-y-1" data-sidebar-panel>
+          <a href="{% url 'custom_field_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'custom_field_list' or request.resolver_match.url_name == 'custom-field-definition-list' %}sidebar-link-active{% endif %}">Custom Fields</a>
+          <a href="{% url 'csv_import' %}" class="sidebar-link {% if request.resolver_match.url_name == 'csv_import' or request.resolver_match.url_name == 'csv_upload' %}sidebar-link-active{% endif %}">Import / Export</a>
+          <a href="{% url 'audit_log' %}" class="sidebar-link {% if request.resolver_match.url_name == 'audit_log' %}sidebar-link-active{% endif %}">Audit Log</a>
+          <a href="{% url 'database_settings' %}" class="sidebar-link {% if request.resolver_match.url_name == 'database_settings' %}sidebar-link-active{% endif %}">Database Settings</a>
+          <a href="{% url 'admin:index' %}" class="sidebar-link {% if request.resolver_match.url_name == 'index' and request.resolver_match.namespace == 'admin' %}sidebar-link-active{% endif %}">Django Admin</a>
+        </div>
+      </section>
+
+      <section class="pt-3 border-t border-slate-700/80">
+        <h3 class="sidebar-group-heading">Global</h3>
+        <div class="mt-2 space-y-1">
+          <a href="{% url 'select_database' %}" class="sidebar-link {% if request.resolver_match.url_name == 'select_database' or request.resolver_match.url_name == 'database-select' %}sidebar-link-active{% endif %}">Select Database</a>
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="sidebar-link w-full text-left">Logout</button>
+          </form>
+        </div>
+      </section>
+    </nav>
+  </div>
+</aside>

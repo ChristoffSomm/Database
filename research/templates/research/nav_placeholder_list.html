@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ page_title }} · StrainDB{% endblock %}
+{% block header_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+  {# Placeholder list page used for sidebar URL coverage until dedicated list views are implemented. #}
+  <section class="max-w-3xl rounded-lg border border-slate-700 bg-slate-900/60 p-6">
+    <h2 class="text-xl font-semibold text-slate-100">{{ page_title }}</h2>
+    <p class="mt-3 text-sm text-slate-300">
+      This section is ready in the new sidebar navigation and currently uses a lightweight placeholder view.
+      Existing functionality remains unchanged.
+    </p>
+  </section>
+{% endblock %}
