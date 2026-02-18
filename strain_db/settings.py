@@ -99,23 +99,3 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-if os.getenv("RESET_ADMINS") == "True":
-    from django.contrib.auth import get_user_model
-    User = get_user_model()
-
-    admins = [
-        (os.getenv("ADMIN_USER_1"), os.getenv("ADMIN_PASS_1")),
-        (os.getenv("ADMIN_USER_2"), os.getenv("ADMIN_PASS_2")),
-    ]
-
-    for username, password in admins:
-        if username and password:
-            user, created = User.objects.get_or_create(username=username)
-            user.is_staff = True
-            user.is_superuser = True
-            user.set_password(password)
-            user.save()
-
-    print("✅ Admin accounts ensured/reset.")
-
