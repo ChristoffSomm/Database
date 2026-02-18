@@ -1,4 +1,6 @@
-# Internal Research Strain Database (Django)
+# HelixMapr
+
+Modern Research Strain Management Platform
 
 ## Tailwind CSS integration
 ```bash
@@ -8,7 +10,7 @@ npm run build:css
 npm run watch:css
 ```
 
-## 🚀 Running StrainDB (Development)
+## 🚀 Running HelixMapr (Development)
 
 This project includes an automated setup script.
 
