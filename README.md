@@ -36,3 +36,10 @@ export POSTGRES_PORT=5432
 - Keep `DJANGO_DEBUG=False`, define `DJANGO_SECRET_KEY`, and set `DJANGO_ALLOWED_HOSTS`.
 - Collect static assets with `python manage.py collectstatic --noinput` and serve `/static/` via Nginx.
 - Only admins create accounts: use Django admin at `/admin/` and do not expose any signup route.
+
+## Railway deploy command
+Use this Railway deploy command:
+
+```bash
+python manage.py migrate && python manage.py collectstatic --noinput && gunicorn strain_db.wsgi:application --bind 0.0.0.0:$PORT
+```
