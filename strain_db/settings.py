@@ -8,7 +8,7 @@ SITE_NAME = "HelixMapr"
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'replace-me-in-production')
 DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"
-ALLOWED_HOSTS = [h for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
+ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -56,7 +56,9 @@ WSGI_APPLICATION = 'strain_db.wsgi.application'
 
 DATABASES = {
     "default": dj_database_url.config(
-        default=os.getenv("DATABASE_URL")
+        default=os.environ.get("DATABASE_URL"),
+        conn_max_age=600,
+        ssl_require=True,
     )
 }
 
@@ -75,7 +77,7 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
