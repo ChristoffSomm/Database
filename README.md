@@ -43,3 +43,54 @@ Use this Railway deploy command:
 ```bash
 python manage.py migrate && python manage.py collectstatic --noinput && gunicorn strain_db.wsgi:application --bind 0.0.0.0:$PORT
 ```
+
+## 🚀 Railway Deployment Guide
+
+### 1️⃣ Create Railway Project
+- Create a new Railway project.
+- Add the PostgreSQL plugin.
+- Deploy from your GitHub repository.
+
+### 2️⃣ Add Environment Variables
+Set these in Railway → Variables:
+
+```bash
+DJANGO_SECRET_KEY=your-generated-secret
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=your-app-name.up.railway.app
+DJANGO_SECURE_SSL_REDIRECT=True
+
+ADMIN_USER_1=ChrisS
+ADMIN_PASS_1=NotAHardPassword0
+ADMIN_USER_2=JacobG
+ADMIN_PASS_2=NotAHardPassword1
+```
+
+Do **NOT** manually set `DATABASE_URL` — Railway injects it automatically.
+
+### 3️⃣ Deployment Command
+Railway will automatically run:
+
+```bash
+python manage.py migrate
+python manage.py collectstatic --noinput
+gunicorn strain_db.wsgi:application --bind 0.0.0.0:$PORT
+```
+
+### 4️⃣ Tailwind Note
+Tailwind CSS must be built locally:
+
+```bash
+npm install
+npm run build:css
+git add static/css/styles.css
+git commit -m "Build production CSS"
+git push
+```
+
+Production does **NOT** run npm.
+
+### 5️⃣ Accessing the App
+Railway will provide:
+
+`https://your-app-name.up.railway.app`
