@@ -7,7 +7,6 @@
   <title>{% block title %}HelixMapr{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/styles.css' %}">
   <style>
-    /* Sidebar-specific UI polish for dark-only layout. */
     .sidebar-group-heading {
       margin-bottom: 0.5rem;
       font-size: 0.7rem;
@@ -53,45 +52,62 @@
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100">
   {% if user.is_authenticated %}
-  <div class="min-h-screen">
+  <!-- Mobile Sidebar -->
+  <div id="mobileSidebar"
+       class="fixed inset-y-0 left-0 w-64 bg-slate-900 border-r border-slate-800 transform -translate-x-full transition-transform duration-200 md:hidden z-50">
     {% include "layout/sidebar.html" %}
+  </div>
 
-    <div class="ml-72">
-      <header class="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-700 bg-slate-900/95 px-6 backdrop-blur">
-        <div class="flex items-center gap-4">
-          <span class="text-base font-bold tracking-wide text-primary">HelixMapr</span>
-          <h1 class="text-lg font-semibold text-slate-100">{% block header_title %}Dashboard{% endblock %}</h1>
+  <div class="min-h-screen bg-slate-950 text-slate-100 flex">
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col">
+      {% include "layout/sidebar.html" %}
+    </aside>
+
+    <div class="flex-1 flex flex-col">
+      <header class="h-16 border-b border-slate-800 bg-slate-900 flex items-center px-6">
+        <button id="sidebarToggle"
+                class="md:hidden text-slate-400 hover:text-white mr-4"
+                type="button">
+          ☰
+        </button>
+        {% block header %}
+        <div class="flex w-full items-center justify-between gap-4">
+          <div class="flex items-center gap-4">
+            <span class="text-base font-bold tracking-wide text-primary">HelixMapr</span>
+            <h1 class="text-lg font-semibold text-slate-100">{% block header_title %}Dashboard{% endblock %}</h1>
+          </div>
+          <div class="flex items-center gap-4">
+            <form method="get" action="{% url 'search-results' %}" class="hidden md:block">
+              <label for="id_nav_search" class="sr-only">Search current database</label>
+              <input
+                id="id_nav_search"
+                name="q"
+                type="search"
+                value="{{ request.GET.q|default:'' }}"
+                placeholder="Search strains, organisms, plasmids..."
+                class="w-80 rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-400 focus:border-primary focus:outline-none"
+              >
+            </form>
+            {% include 'research/partials/organization_switch_button.html' %}
+            {% include 'research/partials/database_switch_button.html' %}
+            <details class="relative">
+              <summary class="flex cursor-pointer list-none items-center gap-3 rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200">
+                <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary font-semibold text-black">U</span>
+                <span>{{ user.username }}</span>
+              </summary>
+              <div class="absolute right-0 mt-2 w-44 rounded-md border border-slate-600 bg-slate-800 p-1 shadow-xl">
+                <form method="post" action="{% url 'logout' %}">
+                  {% csrf_token %}
+                  <button type="submit" class="block w-full rounded px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700">Sign out</button>
+                </form>
+              </div>
+            </details>
+          </div>
         </div>
-        <div class="flex items-center gap-4">
-          <form method="get" action="{% url 'search-results' %}" class="hidden md:block">
-            <label for="id_nav_search" class="sr-only">Search current database</label>
-            <input
-              id="id_nav_search"
-              name="q"
-              type="search"
-              value="{{ request.GET.q|default:'' }}"
-              placeholder="Search strains, organisms, plasmids..."
-              class="w-80 rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-400 focus:border-primary focus:outline-none"
-            >
-          </form>
-          {% include 'research/partials/organization_switch_button.html' %}
-          {% include 'research/partials/database_switch_button.html' %}
-          <details class="relative">
-            <summary class="flex cursor-pointer list-none items-center gap-3 rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200">
-              <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary font-semibold text-black">U</span>
-              <span>{{ user.username }}</span>
-            </summary>
-            <div class="absolute right-0 mt-2 w-44 rounded-md border border-slate-600 bg-slate-800 p-1 shadow-xl">
-              <form method="post" action="{% url 'logout' %}">
-                {% csrf_token %}
-                <button type="submit" class="block w-full rounded px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700">Sign out</button>
-              </form>
-            </div>
-          </details>
-        </div>
+        {% endblock %}
       </header>
 
-      <main class="p-6 lg:p-8">
+      <main class="flex-1 p-8">
         {% if messages %}
           <div class="mb-4 space-y-2">
             {% for message in messages %}
@@ -130,6 +146,15 @@
           localStorage.setItem(key, section.classList.contains("hidden") ? "collapsed" : "open");
         });
       });
+
+      const sidebar = document.getElementById("mobileSidebar");
+      const toggle = document.getElementById("sidebarToggle");
+
+      if (toggle && sidebar) {
+        toggle.addEventListener("click", function () {
+          sidebar.classList.toggle("-translate-x-full");
+        });
+      }
     });
   </script>
 </body>
